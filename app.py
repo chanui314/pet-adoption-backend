@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+import json
 
 import hashlib
 import uuid
@@ -7,11 +8,19 @@ from datetime import date, datetime
 from typing import Any
 
 import pymysql
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
+
+UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+PHOTO_MAX_BYTES = 5 * 1024 * 1024
+VIDEO_MAX_BYTES = 30 * 1024 * 1024
+PHOTO_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "heic"}
+VIDEO_EXTENSIONS = {"mp4", "mov", "m4v", "webm"}
 
 
 def get_db():
@@ -125,11 +134,15 @@ def health():
 @app.post("/register")
 def register():
     data = body()
-    account = str(data.get("account") or "").strip()
-    email = str(data.get("email") or "").strip()
+    email = str(data.get("email") or data.get("account") or "").strip().lower()
+    account = email
     password = str(data.get("password") or "")
-    if not account or not email or not password:
-        return jsonify({"success": False, "message": "帳號、Email、密碼不可空白"}), 400
+    if not email or not password:
+        return jsonify({"success": False, "message": "Gmail、密碼不可空白"}), 400
+    if not email.endswith("@gmail.com") or "@" not in email:
+        return jsonify({"success": False, "message": "帳號請使用 Gmail，例如 example@gmail.com"}), 400
+    if len(password) < 6:
+        return jsonify({"success": False, "message": "密碼至少需要 6 個字元"}), 400
 
     columns = [
         "name", "email", "password", "role", "phone", "address",
@@ -139,9 +152,10 @@ def register():
         "can_take_special", "housing_size", "travel_frequency",
         "living_stability", "monthly_budget", "child_age",
         "has_other_pets", "allergy_tolerance", "only_neutered",
+        "only_vaccinated",
     ]
     values = [
-        account, email, md5(password), role_db(data.get("role")),
+        account, email, md5(password), "adopter",  # 初始身分；登入後可自由切換
         data.get("phone"), data.get("city"), data.get("housing"),
         data.get("experience"), data.get("canKeepPet"), data.get("dailyTime"),
         data.get("prefType"), data.get("prefAge"), data.get("prefGender"),
@@ -151,14 +165,15 @@ def register():
         data.get("livingStability"), data.get("monthlyBudget"),
         data.get("childAge"), data.get("hasOtherPets"),
         data.get("allergyTolerance"), data.get("onlyNeutered"),
+        data.get("onlyVaccinated", True),
     ]
 
     db = get_db()
     try:
         with db.cursor() as cur:
-            cur.execute("SELECT id FROM users WHERE email=%s OR name=%s", (email, account))
+            cur.execute("SELECT id FROM users WHERE email=%s", (email,))
             if cur.fetchone():
-                return jsonify({"success": False, "message": "帳號或 Email 已存在"}), 409
+                return jsonify({"success": False, "message": "此 Gmail 已註冊，一個 Gmail 只能建立一個帳號"}), 409
             cur.execute(
                 f"INSERT INTO users ({','.join(columns)}) VALUES ({','.join(['%s'] * len(columns))})",
                 values,
@@ -176,14 +191,14 @@ def register():
 @app.post("/login")
 def login():
     data = body()
-    account = str(data.get("account") or "").strip()
+    account = str(data.get("account") or "").strip().lower()
     password = str(data.get("password") or "")
     db = get_db()
     try:
         with db.cursor() as cur:
             cur.execute(
-                "SELECT * FROM users WHERE (email=%s OR name=%s) AND password=%s LIMIT 1",
-                (account, account, md5(password)),
+                "SELECT * FROM users WHERE email=%s AND password=%s LIMIT 1",
+                (account, md5(password)),
             )
             user = cur.fetchone()
         if not user:
@@ -199,6 +214,7 @@ def login():
             "canCrossCity": bool(user.get("can_cross_city")),
             "canTakeSpecial": bool(user.get("can_take_special")),
             "onlyNeutered": bool(user.get("only_neutered")),
+            "onlyVaccinated": bool(user.get("only_vaccinated")) if user.get("only_vaccinated") is not None else True,
             "dailyTime": user.get("daily_time"),
             "prefType": user.get("pref_type"),
             "prefAge": user.get("pref_age"),
@@ -215,6 +231,39 @@ def login():
             "role": role_flutter(user.get("role")),
         })
         return jsonify({"success": True, "message": "登入成功", "user": serial(user)})
+    finally:
+        db.close()
+
+
+@app.put("/users/<int:user_id>/active-role")
+def update_active_role(user_id: int):
+    """切換同一帳號目前使用中的身分，不建立新帳號。"""
+    data = body()
+    flutter_role = str(data.get("role") or "").strip()
+    if flutter_role not in {"領養者", "送養者"}:
+        return jsonify({"success": False, "message": "身分只能是領養者或送養者"}), 400
+
+    new_role = role_db(flutter_role)
+    db = get_db()
+    try:
+        with db.cursor() as cur:
+            cur.execute("SELECT role FROM users WHERE id=%s LIMIT 1", (user_id,))
+            row = cur.fetchone()
+            if not row:
+                return jsonify({"success": False, "message": "找不到使用者"}), 404
+            if row.get("role") == "admin":
+                return jsonify({"success": False, "message": "管理員身分不可切換"}), 403
+
+            cur.execute("UPDATE users SET role=%s WHERE id=%s", (new_role, user_id))
+        db.commit()
+        return jsonify({
+            "success": True,
+            "message": "身分切換成功",
+            "role": flutter_role,
+        })
+    except pymysql.MySQLError as exc:
+        db.rollback()
+        return jsonify({"success": False, "message": f"資料庫錯誤：{exc}"}), 500
     finally:
         db.close()
 
@@ -272,6 +321,8 @@ def animals():
                     "unavailable": "已下架",
                 }.get(a.get("status"), a.get("status") or "待領養"),
                 "photo": a.get("photo_url"),
+                "photos": json.loads(a.get("media_json")) if a.get("media_json") else ([a.get("photo_url")] if a.get("photo_url") else []),
+                "video": a.get("video_url"),
                 "breed": a.get("breed"),
                 "coatColor": a.get("coat_color"),
                 "shelterName": a.get("shelter_name"),
@@ -345,9 +396,9 @@ def create_animal():
                 (chip_number,has_chip,name,species,gender,breed,coat_color,size,
                  surrender_reason,owner_name,shelter_name,announcement_date,
                  age_group,personality,health_status,is_neutered,is_vaccinated,owner_type,
-                 foster_id,description,status,location,photo_url)
+                 foster_id,description,status,location,photo_url,video_url,media_json)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,CURDATE(),
-                        %s,%s,%s,%s,%s,%s,%s,%s,'available',%s,%s)
+                        %s,%s,%s,%s,%s,%s,%s,%s,'available',%s,%s,%s,%s)
             """, (
                 stored_chip,
                 1 if has_chip else 0,
@@ -370,6 +421,8 @@ def create_animal():
                 data.get("desc"),
                 data.get("place"),
                 data.get("photo"),
+                data.get("video"),
+                json.dumps(data.get("photos") or [], ensure_ascii=False),
             ))
 
         db.commit()
@@ -399,6 +452,40 @@ def create_animal():
         }), 500
     finally:
         db.close()
+
+
+@app.post("/uploads")
+def upload_media():
+    media_type = str(request.form.get("media_type") or "").strip().lower()
+    file = request.files.get("file")
+    if media_type not in {"photo", "video"}:
+        return jsonify({"success": False, "message": "media_type 必須是 photo 或 video"}), 400
+    if file is None or not file.filename:
+        return jsonify({"success": False, "message": "沒有選擇檔案"}), 400
+
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    allowed = PHOTO_EXTENSIONS if media_type == "photo" else VIDEO_EXTENSIONS
+    max_bytes = PHOTO_MAX_BYTES if media_type == "photo" else VIDEO_MAX_BYTES
+    if ext not in allowed:
+        return jsonify({"success": False, "message": f"不支援的檔案格式：{ext}"}), 400
+
+    file.stream.seek(0, os.SEEK_END)
+    size = file.stream.tell()
+    file.stream.seek(0)
+    if size > max_bytes:
+        limit_mb = max_bytes // (1024 * 1024)
+        return jsonify({"success": False, "message": f"檔案不可超過 {limit_mb}MB"}), 413
+
+    safe_name = secure_filename(file.filename) or f"upload.{ext}"
+    filename = f"{uuid.uuid4().hex}_{safe_name}"
+    file.save(os.path.join(UPLOAD_FOLDER, filename))
+    url = request.host_url.rstrip("/") + "/uploads/" + filename
+    return jsonify({"success": True, "url": url, "size": size}), 201
+
+
+@app.get("/uploads/<path:filename>")
+def uploaded_file(filename: str):
+    return send_from_directory(UPLOAD_FOLDER, filename)
 
 
 @app.post("/applications")
@@ -558,7 +645,7 @@ def get_adopters():
                 SELECT id, name AS account, email, phone, address AS city,
                        '領養者' AS role
                 FROM users
-                WHERE role='adopter'
+                WHERE role <> 'admin'
                 ORDER BY name
             """)
             rows = cur.fetchall()
