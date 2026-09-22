@@ -3,8 +3,13 @@ import os
 import json
 
 import hashlib
+import hmac
+import re
+import secrets
+import smtplib
 import uuid
 from datetime import date, datetime
+from email.message import EmailMessage
 from typing import Any
 
 import pymysql
@@ -13,7 +18,12 @@ from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(
+    app,
+    resources={r"/*": {"origins": "*"}},
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+)
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -76,6 +86,306 @@ def md5(text: str) -> str:
     return hashlib.md5(text.encode("utf-8")).hexdigest()
 
 
+
+def verification_code_hash(code: str) -> str:
+    return hashlib.sha256(code.encode("utf-8")).hexdigest()
+
+
+def is_valid_gmail(email: str) -> bool:
+    return bool(re.fullmatch(r"[^@\s]+@gmail\.com", email.lower()))
+
+
+def ensure_email_verification_table() -> None:
+    """第一次使用驗證碼功能時自動建立資料表。"""
+    db = get_db()
+    try:
+        with db.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS email_verification_codes (
+                    id INT NOT NULL AUTO_INCREMENT,
+                    email VARCHAR(255) NOT NULL,
+                    code_hash VARCHAR(64) NOT NULL,
+                    purpose VARCHAR(30) NOT NULL,
+                    expires_at DATETIME NOT NULL,
+                    used_at DATETIME DEFAULT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id),
+                    INDEX idx_email_purpose (email, purpose),
+                    INDEX idx_expires_at (expires_at)
+                ) ENGINE=InnoDB
+                  DEFAULT CHARSET=utf8mb4
+                  COLLATE=utf8mb4_general_ci
+            """)
+        db.commit()
+    finally:
+        db.close()
+
+
+def send_verification_email(email: str, code: str, purpose: str) -> None:
+    smtp_email = str(os.environ.get("SMTP_EMAIL") or "").strip()
+    smtp_password = str(os.environ.get("SMTP_PASSWORD") or "").replace(" ", "").strip()
+
+    if not smtp_email or not smtp_password:
+        raise RuntimeError(
+            "Railway 尚未設定 SMTP_EMAIL / SMTP_PASSWORD，無法寄送 Gmail 驗證碼"
+        )
+
+    if purpose == "register":
+        subject = "寵物領養系統－註冊驗證碼"
+        action_text = "完成帳號註冊"
+    else:
+        subject = "寵物領養系統－重設密碼驗證碼"
+        action_text = "重設登入密碼"
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = smtp_email
+    msg["To"] = email
+    msg.set_content(
+        f"您好：\n\n您正在進行「{action_text}」。\n"
+        f"您的 6 位數驗證碼是：{code}\n\n"
+        "驗證碼 10 分鐘內有效。若不是您本人操作，請忽略此郵件。"
+    )
+    msg.add_alternative(
+        f"""
+        <html>
+          <body style="font-family:Arial,sans-serif;background:#f7f3ea;padding:24px;">
+            <div style="max-width:520px;margin:auto;background:#ffffff;padding:28px;border-radius:16px;">
+              <h2 style="color:#5F8D7A;">寵物領養系統</h2>
+              <p>您好：</p>
+              <p>您正在進行「{action_text}」。</p>
+              <p>您的 6 位數驗證碼是：</p>
+              <div style="font-size:34px;font-weight:bold;letter-spacing:8px;color:#5F8D7A;margin:24px 0;">
+                {code}
+              </div>
+              <p>驗證碼 <b>10 分鐘</b>內有效。</p>
+              <p style="color:#777;">若不是您本人操作，請忽略此郵件。</p>
+            </div>
+          </body>
+        </html>
+        """,
+        subtype="html",
+    )
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as server:
+        server.login(smtp_email, smtp_password)
+        server.send_message(msg)
+
+
+def latest_valid_code(cur, email: str, purpose: str):
+    cur.execute(
+        """
+        SELECT id, code_hash
+        FROM email_verification_codes
+        WHERE email=%s
+          AND purpose=%s
+          AND used_at IS NULL
+          AND expires_at >= NOW()
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (email, purpose),
+    )
+    return cur.fetchone()
+
+
+@app.post("/auth/send-code")
+def send_email_code():
+    data = body()
+    email = str(data.get("email") or "").strip().lower()
+    purpose = str(data.get("purpose") or "").strip()
+
+    if not is_valid_gmail(email):
+        return jsonify({
+            "success": False,
+            "message": "請輸入有效的 Gmail，例如 example@gmail.com",
+        }), 400
+
+    if purpose not in {"register", "reset_password"}:
+        return jsonify({"success": False, "message": "驗證用途錯誤"}), 400
+
+    ensure_email_verification_table()
+    db = get_db()
+    try:
+        with db.cursor() as cur:
+            cur.execute("SELECT id FROM users WHERE email=%s LIMIT 1", (email,))
+            user = cur.fetchone()
+
+            if purpose == "register" and user:
+                return jsonify({
+                    "success": False,
+                    "message": "此 Gmail 已註冊，一個 Gmail 只能建立一個帳號",
+                }), 409
+
+            if purpose == "reset_password" and not user:
+                return jsonify({
+                    "success": False,
+                    "message": "找不到此 Gmail 的帳號",
+                }), 404
+
+            cur.execute(
+                """
+                SELECT TIMESTAMPDIFF(SECOND, created_at, NOW()) AS seconds_ago
+                FROM email_verification_codes
+                WHERE email=%s AND purpose=%s
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (email, purpose),
+            )
+            last = cur.fetchone()
+            if last and last.get("seconds_ago") is not None:
+                seconds_ago = int(last["seconds_ago"])
+                if seconds_ago < 60:
+                    return jsonify({
+                        "success": False,
+                        "message": f"請等待 {60 - seconds_ago} 秒後再重新傳送驗證碼",
+                    }), 429
+
+            code = f"{secrets.randbelow(1_000_000):06d}"
+            code_hash = verification_code_hash(code)
+
+            # 同一 Gmail、同一用途只保留最新的一組有效驗證碼。
+            cur.execute(
+                """
+                UPDATE email_verification_codes
+                SET used_at=NOW()
+                WHERE email=%s AND purpose=%s AND used_at IS NULL
+                """,
+                (email, purpose),
+            )
+            cur.execute(
+                """
+                INSERT INTO email_verification_codes
+                    (email, code_hash, purpose, expires_at)
+                VALUES
+                    (%s, %s, %s, DATE_ADD(NOW(), INTERVAL 10 MINUTE))
+                """,
+                (email, code_hash, purpose),
+            )
+
+            # 寄信成功才 commit；寄信失敗就 rollback，不留下無法使用的驗證碼。
+            send_verification_email(email, code, purpose)
+
+        db.commit()
+        return jsonify({
+            "success": True,
+            "message": "驗證碼已寄送至 Gmail，10 分鐘內有效",
+        }), 200
+    except Exception as exc:
+        db.rollback()
+        app.logger.exception("send verification code failed")
+        return jsonify({
+            "success": False,
+            "message": f"驗證碼寄送失敗：{exc}",
+        }), 500
+    finally:
+        db.close()
+
+
+
+@app.post("/auth/verify-code")
+def verify_email_code():
+    data = body()
+    email = str(data.get("email") or "").strip().lower()
+    code = str(data.get("code") or "").strip()
+    purpose = str(data.get("purpose") or "").strip()
+
+    if not is_valid_gmail(email):
+        return jsonify({"success": False, "message": "請輸入有效的 Gmail"}), 400
+
+    if not re.fullmatch(r"\d{6}", code):
+        return jsonify({"success": False, "message": "請輸入 6 位數驗證碼"}), 400
+
+    if purpose not in {"register", "reset_password"}:
+        return jsonify({"success": False, "message": "驗證用途錯誤"}), 400
+
+    ensure_email_verification_table()
+    db = get_db()
+
+    try:
+        with db.cursor() as cur:
+            code_row = latest_valid_code(cur, email, purpose)
+
+            if not code_row:
+                return jsonify({
+                    "success": False,
+                    "message": "驗證碼不存在或已過期，請重新取得",
+                }), 400
+
+            if not secrets.compare_digest(
+                str(code_row["code_hash"]),
+                verification_code_hash(code),
+            ):
+                return jsonify({
+                    "success": False,
+                    "message": "驗證碼錯誤",
+                }), 400
+
+        return jsonify({
+            "success": True,
+            "message": "驗證碼正確",
+        }), 200
+
+    finally:
+        db.close()
+
+
+@app.post("/auth/reset-password")
+def reset_password():
+    data = body()
+    email = str(data.get("email") or "").strip().lower()
+    code = str(data.get("code") or "").strip()
+    new_password = str(data.get("new_password") or "")
+
+    if not is_valid_gmail(email):
+        return jsonify({"success": False, "message": "請輸入有效的 Gmail"}), 400
+    if not re.fullmatch(r"\d{6}", code):
+        return jsonify({"success": False, "message": "請輸入 6 位數驗證碼"}), 400
+    if len(new_password) < 6:
+        return jsonify({"success": False, "message": "新密碼至少需要 6 個字元"}), 400
+
+    ensure_email_verification_table()
+    db = get_db()
+    try:
+        with db.cursor() as cur:
+            cur.execute("SELECT id FROM users WHERE email=%s LIMIT 1", (email,))
+            user = cur.fetchone()
+            if not user:
+                return jsonify({"success": False, "message": "找不到此帳號"}), 404
+
+            code_row = latest_valid_code(cur, email, "reset_password")
+            if not code_row:
+                return jsonify({
+                    "success": False,
+                    "message": "驗證碼不存在或已過期，請重新取得",
+                }), 400
+
+            if not hmac.compare_digest(
+                str(code_row["code_hash"]), verification_code_hash(code)
+            ):
+                return jsonify({"success": False, "message": "驗證碼錯誤"}), 400
+
+            cur.execute(
+                "UPDATE users SET password=%s WHERE id=%s",
+                (md5(new_password), user["id"]),
+            )
+            cur.execute(
+                "UPDATE email_verification_codes SET used_at=NOW() WHERE id=%s",
+                (code_row["id"],),
+            )
+
+        db.commit()
+        return jsonify({
+            "success": True,
+            "message": "密碼修改成功，請使用新密碼登入",
+        }), 200
+    except pymysql.MySQLError as exc:
+        db.rollback()
+        return jsonify({"success": False, "message": f"資料庫錯誤：{exc}"}), 500
+    finally:
+        db.close()
+
 def role_db(role: str | None) -> str:
     return {"領養者": "adopter", "送養者": "foster", "管理員": "admin"}.get(
         role or "", role or "adopter"
@@ -137,12 +447,19 @@ def register():
     email = str(data.get("email") or data.get("account") or "").strip().lower()
     account = email
     password = str(data.get("password") or "")
+    verification_code = str(data.get("verification_code") or "").strip()
+
     if not email or not password:
         return jsonify({"success": False, "message": "Gmail、密碼不可空白"}), 400
-    if not email.endswith("@gmail.com") or "@" not in email:
-        return jsonify({"success": False, "message": "帳號請使用 Gmail，例如 example@gmail.com"}), 400
+    if not is_valid_gmail(email):
+        return jsonify({
+            "success": False,
+            "message": "帳號請使用 Gmail，例如 example@gmail.com",
+        }), 400
     if len(password) < 6:
         return jsonify({"success": False, "message": "密碼至少需要 6 個字元"}), 400
+    if not re.fullmatch(r"\d{6}", verification_code):
+        return jsonify({"success": False, "message": "請輸入 6 位數 Gmail 驗證碼"}), 400
 
     columns = [
         "name", "email", "password", "role", "phone", "address",
@@ -155,7 +472,7 @@ def register():
         "only_vaccinated",
     ]
     values = [
-        account, email, md5(password), "adopter",  # 初始身分；登入後可自由切換
+        account, email, md5(password), "adopter",
         data.get("phone"), data.get("city"), data.get("housing"),
         data.get("experience"), data.get("canKeepPet"), data.get("dailyTime"),
         data.get("prefType"), data.get("prefAge"), data.get("prefGender"),
@@ -168,19 +485,45 @@ def register():
         data.get("onlyVaccinated", True),
     ]
 
+    ensure_email_verification_table()
     db = get_db()
     try:
         with db.cursor() as cur:
-            cur.execute("SELECT id FROM users WHERE email=%s", (email,))
+            cur.execute("SELECT id FROM users WHERE email=%s LIMIT 1", (email,))
             if cur.fetchone():
-                return jsonify({"success": False, "message": "此 Gmail 已註冊，一個 Gmail 只能建立一個帳號"}), 409
+                return jsonify({
+                    "success": False,
+                    "message": "此 Gmail 已註冊，一個 Gmail 只能建立一個帳號",
+                }), 409
+
+            code_row = latest_valid_code(cur, email, "register")
+            if not code_row:
+                return jsonify({
+                    "success": False,
+                    "message": "驗證碼不存在或已過期，請重新取得",
+                }), 400
+
+            if not hmac.compare_digest(
+                str(code_row["code_hash"]), verification_code_hash(verification_code)
+            ):
+                return jsonify({"success": False, "message": "Gmail 驗證碼錯誤"}), 400
+
             cur.execute(
                 f"INSERT INTO users ({','.join(columns)}) VALUES ({','.join(['%s'] * len(columns))})",
                 values,
             )
             user_id = cur.lastrowid
+            cur.execute(
+                "UPDATE email_verification_codes SET used_at=NOW() WHERE id=%s",
+                (code_row["id"],),
+            )
+
         db.commit()
-        return jsonify({"success": True, "message": "註冊成功", "user_id": user_id}), 201
+        return jsonify({
+            "success": True,
+            "message": "Gmail 驗證完成，註冊成功",
+            "user_id": user_id,
+        }), 201
     except pymysql.MySQLError as exc:
         db.rollback()
         return jsonify({"success": False, "message": f"資料庫錯誤：{exc}"}), 500
@@ -534,9 +877,7 @@ def application_query(where: str, value: int):
                        COALESCE(adopter.name, ap.adopter_name, '未提供') AS user,
                        COALESCE(owner.name, a.owner_name, a.shelter_name, '系統資料') AS owner
                 FROM applications ap
-                LEFT JOIN animals a
-                    ON a.chip_number COLLATE utf8mb4_general_ci
-                     = ap.chip_number COLLATE utf8mb4_general_ci
+                LEFT JOIN animals a ON a.chip_number=ap.chip_number
                 LEFT JOIN users adopter ON adopter.id=ap.user_id
                 LEFT JOIN users owner ON owner.id=a.foster_id
                 WHERE {where}=%s
@@ -555,6 +896,54 @@ def user_applications(user_id: int):
 @app.get("/applications/owner/<int:owner_id>")
 def owner_applications(owner_id: int):
     return jsonify(application_query("a.foster_id", owner_id))
+
+
+# ========================= 取消領養申請 =========================
+@app.route("/applications/<int:application_id>", methods=["DELETE", "OPTIONS"])
+def cancel_application(application_id: int):
+    # Flutter Web 的 DELETE 可能先送 OPTIONS 預檢
+    if request.method == "OPTIONS":
+        return "", 204
+
+    user_id = request.args.get("user_id", type=int)
+    if not user_id:
+        return jsonify({"success": False, "message": "缺少 user_id"}), 400
+
+    db = get_db()
+    try:
+        with db.cursor() as cur:
+            cur.execute("""
+                SELECT id, user_id, chip_number, status
+                FROM applications
+                WHERE id=%s AND user_id=%s
+                LIMIT 1
+            """, (application_id, user_id))
+            application = cur.fetchone()
+
+            if not application:
+                return jsonify({
+                    "success": False,
+                    "message": "找不到申請，或申請不屬於目前使用者",
+                }), 404
+
+            if str(application.get("status") or "").strip() != "pending":
+                return jsonify({
+                    "success": False,
+                    "message": "只有待審核中的申請可以取消",
+                }), 400
+
+            cur.execute(
+                "DELETE FROM applications WHERE id=%s AND user_id=%s",
+                (application_id, user_id),
+            )
+
+        db.commit()
+        return jsonify({"success": True, "message": "申請已取消"}), 200
+    except pymysql.MySQLError as exc:
+        db.rollback()
+        return jsonify({"success": False, "message": f"資料庫錯誤：{exc}"}), 500
+    finally:
+        db.close()
 
 
 @app.put("/applications/<int:application_id>/status")
@@ -755,14 +1144,10 @@ def create_notification():
         db.close()
 
 
-# ===================== 收藏 =====================
 
+# ========================= 收藏 =========================
 @app.get("/favorites/user/<int:user_id>")
 def get_favorites(user_id: int):
-    """
-    取得指定領養者的收藏清單。
-    Flutter 使用：GET /favorites/user/<user_id>
-    """
     db = get_db()
     try:
         with db.cursor() as cur:
@@ -771,7 +1156,6 @@ def get_favorites(user_id: int):
                     f.id AS favorite_id,
                     f.user_id,
                     f.chip_number,
-                    a.chip_number AS animal_id,
                     a.name,
                     a.species,
                     a.gender,
@@ -784,20 +1168,15 @@ def get_favorites(user_id: int):
                     a.has_chip,
                     a.owner_type,
                     a.foster_id,
+                    a.owner_name,
                     a.location,
                     a.status,
                     a.photo_url,
                     a.video_url,
-                    a.media_json,
-                    a.description,
-                    COALESCE(owner.name, a.owner_name, a.shelter_name, '系統資料') AS owner
+                    a.media_json
                 FROM favorites f
-                LEFT JOIN animals a
-                    ON a.chip_number COLLATE utf8mb4_general_ci
-                     = f.chip_number COLLATE utf8mb4_general_ci
-                LEFT JOIN users owner
-                    ON owner.id = a.foster_id
-                WHERE f.user_id = %s
+                LEFT JOIN animals a ON a.chip_number=f.chip_number
+                WHERE f.user_id=%s
                 ORDER BY f.id DESC
             """, (user_id,))
             rows = cur.fetchall()
@@ -805,19 +1184,18 @@ def get_favorites(user_id: int):
         result = []
         for row in rows:
             photos = []
-            try:
-                if row.get("media_json"):
+            if row.get("media_json"):
+                try:
                     photos = json.loads(row["media_json"])
-            except Exception:
-                photos = []
-
+                except Exception:
+                    photos = []
             if not photos and row.get("photo_url"):
                 photos = [row["photo_url"]]
 
             result.append({
                 "favorite_id": row.get("favorite_id"),
                 "user_id": row.get("user_id"),
-                "id": row.get("animal_id") or row.get("chip_number"),
+                "id": row.get("chip_number"),
                 "chip_number": row.get("chip_number"),
                 "name": row.get("name") or "未命名",
                 "type": "狗" if row.get("species") in ("犬", "狗") else row.get("species"),
@@ -825,18 +1203,14 @@ def get_favorites(user_id: int):
                 "gender": row.get("gender") or "未提供",
                 "size": row.get("size") or "未提供",
                 "age": row.get("age_group") or "未提供",
-                "age_group": row.get("age_group"),
                 "personality": row.get("personality") or "未提供",
                 "healthStatus": row.get("health_status") or "未提供",
-                "health_status": row.get("health_status"),
                 "isNeutered": bool(row.get("is_neutered")),
-                "is_neutered": bool(row.get("is_neutered")),
                 "isVaccinated": bool(row.get("is_vaccinated")),
-                "is_vaccinated": bool(row.get("is_vaccinated")),
                 "has_chip": bool(row.get("has_chip")),
-                "ownerType": row.get("owner_type") or "收容所",
-                "owner": row.get("owner") or "系統資料",
+                "ownerType": row.get("owner_type") or "未提供",
                 "owner_id": row.get("foster_id"),
+                "owner": row.get("owner_name") or "系統資料",
                 "place": row.get("location") or "未提供",
                 "status": {
                     "available": "待領養",
@@ -847,7 +1221,6 @@ def get_favorites(user_id: int):
                 "photo": row.get("photo_url"),
                 "photos": photos,
                 "video": row.get("video_url"),
-                "desc": row.get("description") or "",
             })
 
         return jsonify(result), 200
@@ -855,136 +1228,66 @@ def get_favorites(user_id: int):
         db.close()
 
 
-# 相容舊版前端：GET /favorites/<user_id>
-@app.get("/favorites/<int:user_id>")
-def get_favorites_legacy(user_id: int):
-    return get_favorites(user_id)
-
-
 @app.post("/favorites")
 def add_favorite():
-    """
-    新增收藏。
-    Body:
-    {
-      "user_id": 1,
-      "chip_number": "..."
-    }
-    """
     data = body()
     user_id = data.get("user_id")
     chip_number = str(data.get("chip_number") or "").strip()
 
     if not user_id or not chip_number:
-        return jsonify({
-            "success": False,
-            "message": "缺少 user_id 或 chip_number",
-        }), 400
+        return jsonify({"success": False, "message": "缺少 user_id 或 chip_number"}), 400
+    if len(chip_number) > 100:
+        return jsonify({"success": False, "message": "chip_number 長度異常"}), 400
 
     db = get_db()
     try:
         with db.cursor() as cur:
-            # 確認動物存在
-            cur.execute("""
-                SELECT chip_number
-                FROM animals
-                WHERE chip_number COLLATE utf8mb4_general_ci
-                    = %s COLLATE utf8mb4_general_ci
-                LIMIT 1
-            """, (chip_number,))
-            if not cur.fetchone():
-                return jsonify({
-                    "success": False,
-                    "message": "找不到這隻寵物",
-                }), 404
-
-            # 防止重複收藏
-            cur.execute("""
-                SELECT id
-                FROM favorites
-                WHERE user_id=%s
-                  AND chip_number COLLATE utf8mb4_general_ci
-                    = %s COLLATE utf8mb4_general_ci
-                LIMIT 1
-            """, (user_id, chip_number))
-
+            cur.execute(
+                "SELECT id FROM favorites WHERE user_id=%s AND chip_number=%s LIMIT 1",
+                (user_id, chip_number),
+            )
             if cur.fetchone():
-                return jsonify({
-                    "success": True,
-                    "message": "已經收藏過這隻寵物",
-                }), 200
+                return jsonify({"success": True, "message": "已收藏過這隻寵物"}), 200
 
-            cur.execute("""
-                INSERT INTO favorites (user_id, chip_number)
-                VALUES (%s, %s)
-            """, (user_id, chip_number))
+            cur.execute(
+                "INSERT INTO favorites (user_id, chip_number) VALUES (%s, %s)",
+                (user_id, chip_number),
+            )
 
         db.commit()
-        return jsonify({
-            "success": True,
-            "message": "收藏成功",
-        }), 201
-
+        return jsonify({"success": True, "message": "收藏成功"}), 201
     except pymysql.MySQLError as exc:
         db.rollback()
-        return jsonify({
-            "success": False,
-            "message": f"資料庫錯誤：{exc}",
-        }), 500
+        return jsonify({"success": False, "message": f"資料庫錯誤：{exc}"}), 500
     finally:
         db.close()
 
 
-@app.delete("/favorites")
+@app.route("/favorites", methods=["DELETE", "OPTIONS"])
 def remove_favorite():
-    """
-    移除收藏。
-    Query:
-      ?user_id=1&chip_number=...
-    """
-    user_id = request.args.get("user_id")
+    if request.method == "OPTIONS":
+        return "", 204
+
+    user_id = request.args.get("user_id", type=int)
     chip_number = str(request.args.get("chip_number") or "").strip()
 
     if not user_id or not chip_number:
-        return jsonify({
-            "success": False,
-            "message": "缺少 user_id 或 chip_number",
-        }), 400
+        return jsonify({"success": False, "message": "缺少 user_id 或 chip_number"}), 400
 
     db = get_db()
     try:
         with db.cursor() as cur:
-            cur.execute("""
-                DELETE FROM favorites
-                WHERE user_id=%s
-                  AND chip_number COLLATE utf8mb4_general_ci
-                    = %s COLLATE utf8mb4_general_ci
-            """, (user_id, chip_number))
-
-            deleted = cur.rowcount
-
+            cur.execute(
+                "DELETE FROM favorites WHERE user_id=%s AND chip_number=%s",
+                (user_id, chip_number),
+            )
         db.commit()
-
-        if deleted == 0:
-            return jsonify({
-                "success": False,
-                "message": "找不到收藏紀錄",
-            }), 404
-
-        return jsonify({
-            "success": True,
-            "message": "已取消收藏",
-        }), 200
-
+        return jsonify({"success": True, "message": "已取消收藏"}), 200
     except pymysql.MySQLError as exc:
         db.rollback()
-        return jsonify({
-            "success": False,
-            "message": f"資料庫錯誤：{exc}",
-        }), 500
+        return jsonify({"success": False, "message": f"資料庫錯誤：{exc}"}), 500
     finally:
         db.close()
-
 
 
 @app.errorhandler(Exception)
