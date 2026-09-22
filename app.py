@@ -534,7 +534,9 @@ def application_query(where: str, value: int):
                        COALESCE(adopter.name, ap.adopter_name, '未提供') AS user,
                        COALESCE(owner.name, a.owner_name, a.shelter_name, '系統資料') AS owner
                 FROM applications ap
-                LEFT JOIN animals a ON a.chip_number=ap.chip_number
+                LEFT JOIN animals a
+                    ON a.chip_number COLLATE utf8mb4_general_ci
+                     = ap.chip_number COLLATE utf8mb4_general_ci
                 LEFT JOIN users adopter ON adopter.id=ap.user_id
                 LEFT JOIN users owner ON owner.id=a.foster_id
                 WHERE {where}=%s
@@ -749,6 +751,237 @@ def create_notification():
             )
         db.commit()
         return jsonify({"success": True, "message": "通知已建立"}), 201
+    finally:
+        db.close()
+
+
+# ===================== 收藏 =====================
+
+@app.get("/favorites/user/<int:user_id>")
+def get_favorites(user_id: int):
+    """
+    取得指定領養者的收藏清單。
+    Flutter 使用：GET /favorites/user/<user_id>
+    """
+    db = get_db()
+    try:
+        with db.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    f.id AS favorite_id,
+                    f.user_id,
+                    f.chip_number,
+                    a.chip_number AS animal_id,
+                    a.name,
+                    a.species,
+                    a.gender,
+                    a.size,
+                    a.age_group,
+                    a.personality,
+                    a.health_status,
+                    a.is_neutered,
+                    a.is_vaccinated,
+                    a.has_chip,
+                    a.owner_type,
+                    a.foster_id,
+                    a.location,
+                    a.status,
+                    a.photo_url,
+                    a.video_url,
+                    a.media_json,
+                    a.description,
+                    COALESCE(owner.name, a.owner_name, a.shelter_name, '系統資料') AS owner
+                FROM favorites f
+                LEFT JOIN animals a
+                    ON a.chip_number COLLATE utf8mb4_general_ci
+                     = f.chip_number COLLATE utf8mb4_general_ci
+                LEFT JOIN users owner
+                    ON owner.id = a.foster_id
+                WHERE f.user_id = %s
+                ORDER BY f.id DESC
+            """, (user_id,))
+            rows = cur.fetchall()
+
+        result = []
+        for row in rows:
+            photos = []
+            try:
+                if row.get("media_json"):
+                    photos = json.loads(row["media_json"])
+            except Exception:
+                photos = []
+
+            if not photos and row.get("photo_url"):
+                photos = [row["photo_url"]]
+
+            result.append({
+                "favorite_id": row.get("favorite_id"),
+                "user_id": row.get("user_id"),
+                "id": row.get("animal_id") or row.get("chip_number"),
+                "chip_number": row.get("chip_number"),
+                "name": row.get("name") or "未命名",
+                "type": "狗" if row.get("species") in ("犬", "狗") else row.get("species"),
+                "species": row.get("species"),
+                "gender": row.get("gender") or "未提供",
+                "size": row.get("size") or "未提供",
+                "age": row.get("age_group") or "未提供",
+                "age_group": row.get("age_group"),
+                "personality": row.get("personality") or "未提供",
+                "healthStatus": row.get("health_status") or "未提供",
+                "health_status": row.get("health_status"),
+                "isNeutered": bool(row.get("is_neutered")),
+                "is_neutered": bool(row.get("is_neutered")),
+                "isVaccinated": bool(row.get("is_vaccinated")),
+                "is_vaccinated": bool(row.get("is_vaccinated")),
+                "has_chip": bool(row.get("has_chip")),
+                "ownerType": row.get("owner_type") or "收容所",
+                "owner": row.get("owner") or "系統資料",
+                "owner_id": row.get("foster_id"),
+                "place": row.get("location") or "未提供",
+                "status": {
+                    "available": "待領養",
+                    "trial": "試養中",
+                    "adopted": "正式領養",
+                    "unavailable": "已下架",
+                }.get(row.get("status"), row.get("status") or "待領養"),
+                "photo": row.get("photo_url"),
+                "photos": photos,
+                "video": row.get("video_url"),
+                "desc": row.get("description") or "",
+            })
+
+        return jsonify(result), 200
+    finally:
+        db.close()
+
+
+# 相容舊版前端：GET /favorites/<user_id>
+@app.get("/favorites/<int:user_id>")
+def get_favorites_legacy(user_id: int):
+    return get_favorites(user_id)
+
+
+@app.post("/favorites")
+def add_favorite():
+    """
+    新增收藏。
+    Body:
+    {
+      "user_id": 1,
+      "chip_number": "..."
+    }
+    """
+    data = body()
+    user_id = data.get("user_id")
+    chip_number = str(data.get("chip_number") or "").strip()
+
+    if not user_id or not chip_number:
+        return jsonify({
+            "success": False,
+            "message": "缺少 user_id 或 chip_number",
+        }), 400
+
+    db = get_db()
+    try:
+        with db.cursor() as cur:
+            # 確認動物存在
+            cur.execute("""
+                SELECT chip_number
+                FROM animals
+                WHERE chip_number COLLATE utf8mb4_general_ci
+                    = %s COLLATE utf8mb4_general_ci
+                LIMIT 1
+            """, (chip_number,))
+            if not cur.fetchone():
+                return jsonify({
+                    "success": False,
+                    "message": "找不到這隻寵物",
+                }), 404
+
+            # 防止重複收藏
+            cur.execute("""
+                SELECT id
+                FROM favorites
+                WHERE user_id=%s
+                  AND chip_number COLLATE utf8mb4_general_ci
+                    = %s COLLATE utf8mb4_general_ci
+                LIMIT 1
+            """, (user_id, chip_number))
+
+            if cur.fetchone():
+                return jsonify({
+                    "success": True,
+                    "message": "已經收藏過這隻寵物",
+                }), 200
+
+            cur.execute("""
+                INSERT INTO favorites (user_id, chip_number)
+                VALUES (%s, %s)
+            """, (user_id, chip_number))
+
+        db.commit()
+        return jsonify({
+            "success": True,
+            "message": "收藏成功",
+        }), 201
+
+    except pymysql.MySQLError as exc:
+        db.rollback()
+        return jsonify({
+            "success": False,
+            "message": f"資料庫錯誤：{exc}",
+        }), 500
+    finally:
+        db.close()
+
+
+@app.delete("/favorites")
+def remove_favorite():
+    """
+    移除收藏。
+    Query:
+      ?user_id=1&chip_number=...
+    """
+    user_id = request.args.get("user_id")
+    chip_number = str(request.args.get("chip_number") or "").strip()
+
+    if not user_id or not chip_number:
+        return jsonify({
+            "success": False,
+            "message": "缺少 user_id 或 chip_number",
+        }), 400
+
+    db = get_db()
+    try:
+        with db.cursor() as cur:
+            cur.execute("""
+                DELETE FROM favorites
+                WHERE user_id=%s
+                  AND chip_number COLLATE utf8mb4_general_ci
+                    = %s COLLATE utf8mb4_general_ci
+            """, (user_id, chip_number))
+
+            deleted = cur.rowcount
+
+        db.commit()
+
+        if deleted == 0:
+            return jsonify({
+                "success": False,
+                "message": "找不到收藏紀錄",
+            }), 404
+
+        return jsonify({
+            "success": True,
+            "message": "已取消收藏",
+        }), 200
+
+    except pymysql.MySQLError as exc:
+        db.rollback()
+        return jsonify({
+            "success": False,
+            "message": f"資料庫錯誤：{exc}",
+        }), 500
     finally:
         db.close()
 
