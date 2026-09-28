@@ -1,4 +1,4 @@
-from \_\_future\_\_ import annotations
+from __future__ import annotations
 
 import os
 
@@ -36,29 +36,26 @@ from werkzeug.utils import secure_filename
 
 
 
-app = Flask(\_\_name\_\_)
+app = Flask(__name__)
 
 CORS(
-
-    app,
-
-    resources={r"/\*": {"origins": "\*"}},
-
-    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-
-    allow_headers=["Content-Type", "Authorization"],
-
+    app,
+    resources={r"/*": {"origins": "*"}},
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+    supports_credentials=False,
+    max_age=86400,
 )
 
 
 
-UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(\_\_file\_\_)), "uploads")
+UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-PHOTO_MAX_BYTES = 5 \* 1024 \* 1024
+PHOTO_MAX_BYTES = 5 * 1024 * 1024
 
-VIDEO_MAX_BYTES = 30 \* 1024 \* 1024
+VIDEO_MAX_BYTES = 30 * 1024 * 1024
 
 PHOTO_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "heic"}
 
@@ -70,89 +67,89 @@ VIDEO_EXTENSIONS = {"mp4", "mov", "m4v", "webm"}
 
 def get_db():
 
-    """
+    """
 
-    同時支援 Railway 常見的兩種資料庫變數名稱：
+    同時支援 Railway 常見的兩種資料庫變數名稱：
 
-    MYSQLDATABASE 與 MYSQL_DATABASE。
+    MYSQLDATABASE 與 MYSQL_DATABASE。
 
-    """
+    """
 
-    host = os.environ.get("MYSQLHOST")
+    host = os.environ.get("MYSQLHOST")
 
-    port = int(os.environ.get("MYSQLPORT", "3306"))
+    port = int(os.environ.get("MYSQLPORT", "3306"))
 
-    user = os.environ.get("MYSQLUSER")
+    user = os.environ.get("MYSQLUSER")
 
-    password = os.environ.get("MYSQLPASSWORD")
+    password = os.environ.get("MYSQLPASSWORD")
 
-    database = (
+    database = (
 
-        os.environ.get("MYSQLDATABASE")
+        os.environ.get("MYSQLDATABASE")
 
-        or os.environ.get("MYSQL_DATABASE")
+        or os.environ.get("MYSQL_DATABASE")
 
-    )
-
-
-
-    missing = [
-
-        name
-
-        for name, value in {
-
-            "MYSQLHOST": host,
-
-            "MYSQLUSER": user,
-
-            "MYSQLPASSWORD": password,
-
-            "MYSQLDATABASE / MYSQL_DATABASE": database,
-
-        }.items()
-
-        if not value
-
-    ]
+    )
 
 
 
-    if missing:
+    missing = [
 
-        raise RuntimeError(
+        name
 
-            "缺少 Railway 資料庫環境變數：" + ", ".join(missing)
+        for name, value in {
 
-        )
+            "MYSQLHOST": host,
+
+            "MYSQLUSER": user,
+
+            "MYSQLPASSWORD": password,
+
+            "MYSQLDATABASE / MYSQL_DATABASE": database,
+
+        }.items()
+
+        if not value
+
+    ]
 
 
 
-    return pymysql.connect(
+    if missing:
 
-        host=host,
+        raise RuntimeError(
 
-        port=port,
+            "缺少 Railway 資料庫環境變數：" + ", ".join(missing)
 
-        user=user,
+        )
 
-        password=password,
 
-        database=database,
 
-        charset="utf8mb4",
+    return pymysql.connect(
 
-        cursorclass=pymysql.cursors.DictCursor,
+        host=host,
 
-        autocommit=False,
+        port=port,
 
-        connect_timeout=10,
+        user=user,
 
-        read_timeout=20,
+        password=password,
 
-        write_timeout=20,
+        database=database,
 
-    )
+        charset="utf8mb4",
+
+        cursorclass=pymysql.cursors.DictCursor,
+
+        autocommit=False,
+
+        connect_timeout=10,
+
+        read_timeout=20,
+
+        write_timeout=20,
+
+    )
 
 
 
@@ -160,7 +157,7 @@ def get_db():
 
 def body() -> dict[str, Any]:
 
-    return request.get_json(silent=True) or {}
+    return request.get_json(silent=True) or {}
 
 
 
@@ -168,7 +165,7 @@ def body() -> dict[str, Any]:
 
 def md5(text: str) -> str:
 
-    return hashlib.md5(text.encode("utf-8")).hexdigest()
+    return hashlib.md5(text.encode("utf-8")).hexdigest()
 
 
 
@@ -178,7 +175,7 @@ def md5(text: str) -> str:
 
 def verification_code_hash(code: str) -> str:
 
-    return hashlib.sha256(code.encode("utf-8")).hexdigest()
+    return hashlib.sha256(code.encode("utf-8")).hexdigest()
 
 
 
@@ -186,7 +183,7 @@ def verification_code_hash(code: str) -> str:
 
 def is_valid_gmail(email: str) -> bool:
 
-    return bool(re.fullmatch(r"[^@\s]+\@gmail\\.com", email.lower()))
+    return bool(re.fullmatch(r"[^@\s]+@gmail\.com", email.lower()))
 
 
 
@@ -194,51 +191,51 @@ def is_valid_gmail(email: str) -> bool:
 
 def ensure_email_verification_table() -> None:
 
-    """第一次使用驗證碼功能時自動建立資料表。"""
+    """第一次使用驗證碼功能時自動建立資料表。"""
 
-    db = get_db()
+    db = get_db()
 
-    try:
+    try:
 
-        with db.cursor() as cur:
+        with db.cursor() as cur:
 
-            cur.execute("""
+            cur.execute("""
 
-                CREATE TABLE IF NOT EXISTS email_verification_codes (
+                CREATE TABLE IF NOT EXISTS email_verification_codes (
 
-                    id INT NOT NULL AUTO_INCREMENT,
+                    id INT NOT NULL AUTO_INCREMENT,
 
-                    email VARCHAR(255) NOT NULL,
+                    email VARCHAR(255) NOT NULL,
 
-                    code_hash VARCHAR(64) NOT NULL,
+                    code_hash VARCHAR(64) NOT NULL,
 
-                    purpose VARCHAR(30) NOT NULL,
+                    purpose VARCHAR(30) NOT NULL,
 
-                    expires_at DATETIME NOT NULL,
+                    expires_at DATETIME NOT NULL,
 
-                    used_at DATETIME DEFAULT NULL,
+                    used_at DATETIME DEFAULT NULL,
 
-                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-                    PRIMARY KEY (id),
+                    PRIMARY KEY (id),
 
-                    INDEX idx_email_purpose (email, purpose),
+                    INDEX idx_email_purpose (email, purpose),
 
-                    INDEX idx_expires_at (expires_at)
+                    INDEX idx_expires_at (expires_at)
 
-                ) ENGINE=InnoDB
+                ) ENGINE=InnoDB
 
-                  DEFAULT CHARSET=utf8mb4
+                  DEFAULT CHARSET=utf8mb4
 
-                  COLLATE=utf8mb4_general_ci
+                  COLLATE=utf8mb4_general_ci
 
-            """)
+            """)
 
-        db.commit()
+        db.commit()
 
-    finally:
+    finally:
 
-        db.close()
+        db.close()
 
 
 
@@ -246,101 +243,101 @@ def ensure_email_verification_table() -> None:
 
 def send_verification_email(email: str, code: str, purpose: str) -> None:
 
-    smtp_email = str(os.environ.get("SMTP_EMAIL") or "").strip()
+    smtp_email = str(os.environ.get("SMTP_EMAIL") or "").strip()
 
-    smtp_password = str(os.environ.get("SMTP_PASSWORD") or "").replace(" ", "").strip()
-
-
-
-    if not smtp_email or not smtp_password:
-
-        raise RuntimeError(
-
-            "Railway 尚未設定 SMTP_EMAIL / SMTP_PASSWORD，無法寄送 Gmail 驗證碼"
-
-        )
+    smtp_password = str(os.environ.get("SMTP_PASSWORD") or "").replace(" ", "").strip()
 
 
 
-    if purpose == "register":
+    if not smtp_email or not smtp_password:
 
-        subject = "寵物領養系統－註冊驗證碼"
+        raise RuntimeError(
 
-        action_text = "完成帳號註冊"
+            "Railway 尚未設定 SMTP_EMAIL / SMTP_PASSWORD，無法寄送 Gmail 驗證碼"
 
-    else:
-
-        subject = "寵物領養系統－重設密碼驗證碼"
-
-        action_text = "重設登入密碼"
+        )
 
 
 
-    msg = EmailMessage()
+    if purpose == "register":
 
-    msg["Subject"] = subject
+        subject = "寵物領養系統－註冊驗證碼"
 
-    msg["From"] = smtp_email
+        action_text = "完成帳號註冊"
 
-    msg["To"] = email
+    else:
 
-    msg.set_content(
+        subject = "寵物領養系統－重設密碼驗證碼"
 
-        f"您好：\n\n您正在進行「{action_text}」。\n"
-
-        f"您的 6 位數驗證碼是：{code}\n\n"
-
-        "驗證碼 10 分鐘內有效。若不是您本人操作，請忽略此郵件。"
-
-    )
-
-    msg.add_alternative(
-
-        f"""
-
-        \<html>
-
-          \<body style="font-family:Arial,sans-serif;background:#f7f3ea;padding:24px;">
-
-            \<div style="max-width:520px;margin:auto;background:#ffffff;padding:28px;border-radius:16px;">
-
-              \<h2 style="color:#5F8D7A;">寵物領養系統\</h2>
-
-              \<p>您好：\</p>
-
-              \<p>您正在進行「{action_text}」。\</p>
-
-              \<p>您的 6 位數驗證碼是：\</p>
-
-              \<div style="font-size:34px;font-weight:bold;letter-spacing:8px;color:#5F8D7A;margin:24px 0;">
-
-                {code}
-
-              \</div>
-
-              \<p>驗證碼 \<b>10 分鐘\</b>內有效。\</p>
-
-              \<p style="color:#777;">若不是您本人操作，請忽略此郵件。\</p>
-
-            \</div>
-
-          \</body>
-
-        \</html>
-
-        """,
-
-        subtype="html",
-
-    )
+        action_text = "重設登入密碼"
 
 
 
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as server:
+    msg = EmailMessage()
 
-        server.login(smtp_email, smtp_password)
+    msg["Subject"] = subject
 
-        server.send_message(msg)
+    msg["From"] = smtp_email
+
+    msg["To"] = email
+
+    msg.set_content(
+
+        f"您好：\n\n您正在進行「{action_text}」。\n"
+
+        f"您的 6 位數驗證碼是：{code}\n\n"
+
+        "驗證碼 10 分鐘內有效。若不是您本人操作，請忽略此郵件。"
+
+    )
+
+    msg.add_alternative(
+
+        f"""
+
+        <html>
+
+          <body style="font-family:Arial,sans-serif;background:#f7f3ea;padding:24px;">
+
+            <div style="max-width:520px;margin:auto;background:#ffffff;padding:28px;border-radius:16px;">
+
+              <h2 style="color:#5F8D7A;">寵物領養系統</h2>
+
+              <p>您好：</p>
+
+              <p>您正在進行「{action_text}」。</p>
+
+              <p>您的 6 位數驗證碼是：</p>
+
+              <div style="font-size:34px;font-weight:bold;letter-spacing:8px;color:#5F8D7A;margin:24px 0;">
+
+                {code}
+
+              </div>
+
+              <p>驗證碼 <b>10 分鐘</b>內有效。</p>
+
+              <p style="color:#777;">若不是您本人操作，請忽略此郵件。</p>
+
+            </div>
+
+          </body>
+
+        </html>
+
+        """,
+
+        subtype="html",
+
+    )
+
+
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as server:
+
+        server.login(smtp_email, smtp_password)
+
+        server.send_message(msg)
 
 
 
@@ -348,227 +345,221 @@ def send_verification_email(email: str, code: str, purpose: str) -> None:
 
 def latest_valid_code(cur, email: str, purpose: str):
 
-    cur.execute(
+    cur.execute(
 
-        """
+        """
 
-        SELECT id, code_hash
+        SELECT id, code_hash
 
-        FROM email_verification_codes
+        FROM email_verification_codes
 
-        WHERE email=%s
+        WHERE email=%s
 
-          AND purpose=%s
+          AND purpose=%s
 
-          AND used_at IS NULL
+          AND used_at IS NULL
 
-          AND expires_at >= NOW()
+          AND expires_at >= NOW()
 
-        ORDER BY id DESC
+        ORDER BY id DESC
 
-        LIMIT 1
+        LIMIT 1
 
-        """,
+        """,
 
-        (email, purpose),
+        (email, purpose),
 
-    )
+    )
 
-    return cur.fetchone()
-
-
+    return cur.fetchone()
 
 
 
-@app.route("/auth/<path:_path>", methods=["OPTIONS"])
-def auth_preflight(_path: str):
-    """Handle Flutter Web / browser CORS preflight for auth endpoints."""
-    return "", 204
 
 
 @app.post("/auth/send-code")
 
 def send_email_code():
 
-    data = body()
+    data = body()
 
-    email = str(data.get("email") or "").strip().lower()
+    email = str(data.get("email") or "").strip().lower()
 
-    purpose = str(data.get("purpose") or "").strip()
+    purpose = str(data.get("purpose") or "").strip()
 
 
 
-    if not is_valid_gmail(email):
+    if not is_valid_gmail(email):
 
-        return jsonify({
+        return jsonify({
 
-            "success": False,
+            "success": False,
 
-            "message": "請輸入有效的 Gmail，例如 example\@gmail.com",
+            "message": "請輸入有效的 Gmail，例如 example@gmail.com",
 
-        }), 400
+        }), 400
 
 
 
-    if purpose not in {"register", "reset_password"}:
+    if purpose not in {"register", "reset_password"}:
 
-        return jsonify({"success": False, "message": "驗證用途錯誤"}), 400
+        return jsonify({"success": False, "message": "驗證用途錯誤"}), 400
 
 
 
-    ensure_email_verification_table()
+    ensure_email_verification_table()
 
-    db = get_db()
+    db = get_db()
 
-    try:
+    try:
 
-        with db.cursor() as cur:
+        with db.cursor() as cur:
 
-            cur.execute("SELECT id FROM users WHERE email=%s LIMIT 1", (email,))
+            cur.execute("SELECT id FROM users WHERE email=%s LIMIT 1", (email,))
 
-            user = cur.fetchone()
+            user = cur.fetchone()
 
 
 
-            if purpose == "register" and user:
+            if purpose == "register" and user:
 
-                return jsonify({
+                return jsonify({
 
-                    "success": False,
+                    "success": False,
 
-                    "message": "此 Gmail 已註冊，一個 Gmail 只能建立一個帳號",
+                    "message": "此 Gmail 已註冊，一個 Gmail 只能建立一個帳號",
 
-                }), 409
+                }), 409
 
 
 
-            if purpose == "reset_password" and not user:
+            if purpose == "reset_password" and not user:
 
-                return jsonify({
+                return jsonify({
 
-                    "success": False,
+                    "success": False,
 
-                    "message": "找不到此 Gmail 的帳號",
+                    "message": "找不到此 Gmail 的帳號",
 
-                }), 404
+                }), 404
 
 
 
-            cur.execute(
+            cur.execute(
 
-                """
+                """
 
-                SELECT TIMESTAMPDIFF(SECOND, created_at, NOW()) AS seconds_ago
+                SELECT TIMESTAMPDIFF(SECOND, created_at, NOW()) AS seconds_ago
 
-                FROM email_verification_codes
+                FROM email_verification_codes
 
-                WHERE email=%s AND purpose=%s
+                WHERE email=%s AND purpose=%s
 
-                ORDER BY id DESC
+                ORDER BY id DESC
 
-                LIMIT 1
+                LIMIT 1
 
-                """,
+                """,
 
-                (email, purpose),
+                (email, purpose),
 
-            )
+            )
 
-            last = cur.fetchone()
+            last = cur.fetchone()
 
-            if last and last.get("seconds_ago") is not None:
+            if last and last.get("seconds_ago") is not None:
 
-                seconds_ago = int(last["seconds_ago"])
+                seconds_ago = int(last["seconds_ago"])
 
-                if seconds_ago < 60:
+                if seconds_ago < 60:
 
-                    return jsonify({
+                    return jsonify({
 
-                        "success": False,
+                        "success": False,
 
-                        "message": f"請等待 {60 - seconds_ago} 秒後再重新傳送驗證碼",
+                        "message": f"請等待 {60 - seconds_ago} 秒後再重新傳送驗證碼",
 
-                    }), 429
+                    }), 429
 
 
 
-            code = f"{secrets.randbelow(1_000_000):06d}"
+            code = f"{secrets.randbelow(1_000_000):06d}"
 
-            code_hash = verification_code_hash(code)
+            code_hash = verification_code_hash(code)
 
 
 
-            # 同一 Gmail、同一用途只保留最新的一組有效驗證碼。
+            # 同一 Gmail、同一用途只保留最新的一組有效驗證碼。
 
-            cur.execute(
+            cur.execute(
 
-                """
+                """
 
-                UPDATE email_verification_codes
+                UPDATE email_verification_codes
 
-                SET used_at=NOW()
+                SET used_at=NOW()
 
-                WHERE email=%s AND purpose=%s AND used_at IS NULL
+                WHERE email=%s AND purpose=%s AND used_at IS NULL
 
-                """,
+                """,
 
-                (email, purpose),
+                (email, purpose),
 
-            )
+            )
 
-            cur.execute(
+            cur.execute(
 
-                """
+                """
 
-                INSERT INTO email_verification_codes
+                INSERT INTO email_verification_codes
 
-                    (email, code_hash, purpose, expires_at)
+                    (email, code_hash, purpose, expires_at)
 
-                VALUES
+                VALUES
 
-                    (%s, %s, %s, DATE_ADD(NOW(), INTERVAL 10 MINUTE))
+                    (%s, %s, %s, DATE_ADD(NOW(), INTERVAL 10 MINUTE))
 
-                """,
+                """,
 
-                (email, code_hash, purpose),
+                (email, code_hash, purpose),
 
-            )
+            )
 
 
 
-            # 寄信成功才 commit；寄信失敗就 rollback，不留下無法使用的驗證碼。
+            # 寄信成功才 commit；寄信失敗就 rollback，不留下無法使用的驗證碼。
 
-            send_verification_email(email, code, purpose)
+            send_verification_email(email, code, purpose)
 
 
 
-        db.commit()
+        db.commit()
 
-        return jsonify({
+        return jsonify({
 
-            "success": True,
+            "success": True,
 
-            "message": "驗證碼已寄送至 Gmail，10 分鐘內有效",
+            "message": "驗證碼已寄送至 Gmail，10 分鐘內有效",
 
-        }), 200
+        }), 200
 
-    except Exception as exc:
+    except Exception as exc:
 
-        db.rollback()
+        db.rollback()
 
-        app.logger.exception("send verification code failed")
+        app.logger.exception("send verification code failed")
 
-        return jsonify({
+        return jsonify({
 
-            "success": False,
+            "success": False,
 
-            "message": f"驗證碼寄送失敗：{exc}",
+            "message": f"驗證碼寄送失敗：{exc}",
 
-        }), 500
+        }), 500
 
-    finally:
+    finally:
 
-        db.close()
+        db.close()
 
 
 
@@ -580,91 +571,91 @@ def send_email_code():
 
 def verify_email_code():
 
-    data = body()
+    data = body()
 
-    email = str(data.get("email") or "").strip().lower()
+    email = str(data.get("email") or "").strip().lower()
 
-    code = str(data.get("code") or "").strip()
+    code = str(data.get("code") or "").strip()
 
-    purpose = str(data.get("purpose") or "").strip()
-
-
-
-    if not is_valid_gmail(email):
-
-        return jsonify({"success": False, "message": "請輸入有效的 Gmail"}), 400
+    purpose = str(data.get("purpose") or "").strip()
 
 
 
-    if not re.fullmatch(r"\d{6}", code):
+    if not is_valid_gmail(email):
 
-        return jsonify({"success": False, "message": "請輸入 6 位數驗證碼"}), 400
-
-
-
-    if purpose not in {"register", "reset_password"}:
-
-        return jsonify({"success": False, "message": "驗證用途錯誤"}), 400
+        return jsonify({"success": False, "message": "請輸入有效的 Gmail"}), 400
 
 
 
-    ensure_email_verification_table()
+    if not re.fullmatch(r"\d{6}", code):
 
-    db = get_db()
-
-
-
-    try:
-
-        with db.cursor() as cur:
-
-            code_row = latest_valid_code(cur, email, purpose)
+        return jsonify({"success": False, "message": "請輸入 6 位數驗證碼"}), 400
 
 
 
-            if not code_row:
+    if purpose not in {"register", "reset_password"}:
 
-                return jsonify({
-
-                    "success": False,
-
-                    "message": "驗證碼不存在或已過期，請重新取得",
-
-                }), 400
+        return jsonify({"success": False, "message": "驗證用途錯誤"}), 400
 
 
 
-            if not secrets.compare_digest(
+    ensure_email_verification_table()
 
-                str(code_row["code_hash"]),
-
-                verification_code_hash(code),
-
-            ):
-
-                return jsonify({
-
-                    "success": False,
-
-                    "message": "驗證碼錯誤",
-
-                }), 400
+    db = get_db()
 
 
 
-        return jsonify({
+    try:
 
-            "success": True,
+        with db.cursor() as cur:
 
-            "message": "驗證碼正確",
-
-        }), 200
+            code_row = latest_valid_code(cur, email, purpose)
 
 
 
-    finally:
+            if not code_row:
 
-        db.close()
+                return jsonify({
+
+                    "success": False,
+
+                    "message": "驗證碼不存在或已過期，請重新取得",
+
+                }), 400
+
+
+
+            if not secrets.compare_digest(
+
+                str(code_row["code_hash"]),
+
+                verification_code_hash(code),
+
+            ):
+
+                return jsonify({
+
+                    "success": False,
+
+                    "message": "驗證碼錯誤",
+
+                }), 400
+
+
+
+        return jsonify({
+
+            "success": True,
+
+            "message": "驗證碼正確",
+
+        }), 200
+
+
+
+    finally:
+
+        db.close()
 
 
 
@@ -674,119 +665,119 @@ def verify_email_code():
 
 def reset_password():
 
-    data = body()
+    data = body()
 
-    email = str(data.get("email") or "").strip().lower()
+    email = str(data.get("email") or "").strip().lower()
 
-    code = str(data.get("code") or "").strip()
+    code = str(data.get("code") or "").strip()
 
-    new_password = str(data.get("new_password") or "")
-
-
-
-    if not is_valid_gmail(email):
-
-        return jsonify({"success": False, "message": "請輸入有效的 Gmail"}), 400
-
-    if not re.fullmatch(r"\d{6}", code):
-
-        return jsonify({"success": False, "message": "請輸入 6 位數驗證碼"}), 400
-
-    if len(new_password) < 6:
-
-        return jsonify({"success": False, "message": "新密碼至少需要 6 個字元"}), 400
+    new_password = str(data.get("new_password") or "")
 
 
 
-    ensure_email_verification_table()
+    if not is_valid_gmail(email):
 
-    db = get_db()
+        return jsonify({"success": False, "message": "請輸入有效的 Gmail"}), 400
 
-    try:
+    if not re.fullmatch(r"\d{6}", code):
 
-        with db.cursor() as cur:
+        return jsonify({"success": False, "message": "請輸入 6 位數驗證碼"}), 400
 
-            cur.execute("SELECT id FROM users WHERE email=%s LIMIT 1", (email,))
+    if len(new_password) < 6:
 
-            user = cur.fetchone()
-
-            if not user:
-
-                return jsonify({"success": False, "message": "找不到此帳號"}), 404
+        return jsonify({"success": False, "message": "新密碼至少需要 6 個字元"}), 400
 
 
 
-            code_row = latest_valid_code(cur, email, "reset_password")
+    ensure_email_verification_table()
 
-            if not code_row:
+    db = get_db()
 
-                return jsonify({
+    try:
 
-                    "success": False,
+        with db.cursor() as cur:
 
-                    "message": "驗證碼不存在或已過期，請重新取得",
+            cur.execute("SELECT id FROM users WHERE email=%s LIMIT 1", (email,))
 
-                }), 400
+            user = cur.fetchone()
 
+            if not user:
 
-
-            if not hmac.compare_digest(
-
-                str(code_row["code_hash"]), verification_code_hash(code)
-
-            ):
-
-                return jsonify({"success": False, "message": "驗證碼錯誤"}), 400
+                return jsonify({"success": False, "message": "找不到此帳號"}), 404
 
 
 
-            cur.execute(
+            code_row = latest_valid_code(cur, email, "reset_password")
 
-                "UPDATE users SET password=%s WHERE id=%s",
+            if not code_row:
 
-                (md5(new_password), user["id"]),
+                return jsonify({
 
-            )
+                    "success": False,
 
-            cur.execute(
+                    "message": "驗證碼不存在或已過期，請重新取得",
 
-                "UPDATE email_verification_codes SET used_at=NOW() WHERE id=%s",
-
-                (code_row["id"],),
-
-            )
+                }), 400
 
 
 
-        db.commit()
+            if not hmac.compare_digest(
 
-        return jsonify({
+                str(code_row["code_hash"]), verification_code_hash(code)
 
-            "success": True,
+            ):
 
-            "message": "密碼修改成功，請使用新密碼登入",
+                return jsonify({"success": False, "message": "驗證碼錯誤"}), 400
 
-        }), 200
 
-    except pymysql.MySQLError as exc:
 
-        db.rollback()
+            cur.execute(
 
-        return jsonify({"success": False, "message": f"資料庫錯誤：{exc}"}), 500
+                "UPDATE users SET password=%s WHERE id=%s",
 
-    finally:
+                (md5(new_password), user["id"]),
 
-        db.close()
+            )
+
+            cur.execute(
+
+                "UPDATE email_verification_codes SET used_at=NOW() WHERE id=%s",
+
+                (code_row["id"],),
+
+            )
+
+
+
+        db.commit()
+
+        return jsonify({
+
+            "success": True,
+
+            "message": "密碼修改成功，請使用新密碼登入",
+
+        }), 200
+
+    except pymysql.MySQLError as exc:
+
+        db.rollback()
+
+        return jsonify({"success": False, "message": f"資料庫錯誤：{exc}"}), 500
+
+    finally:
+
+        db.close()
 
 
 
 def role_db(role: str | None) -> str:
 
-    return {"領養者": "adopter", "送養者": "foster", "管理員": "admin"}.get(
+    return {"領養者": "adopter", "送養者": "foster", "管理員": "admin"}.get(
 
-        role or "", role or "adopter"
+        role or "", role or "adopter"
 
-    )
+    )
 
 
 
@@ -794,11 +785,11 @@ def role_db(role: str | None) -> str:
 
 def role_flutter(role: str | None) -> str:
 
-    return {"adopter": "領養者", "foster": "送養者", "admin": "管理員"}.get(
+    return {"adopter": "領養者", "foster": "送養者", "admin": "管理員"}.get(
 
-        role or "", role or "領養者"
+        role or "", role or "領養者"
 
-    )
+    )
 
 
 
@@ -806,15 +797,15 @@ def role_flutter(role: str | None) -> str:
 
 def serial(row: dict[str, Any]) -> dict[str, Any]:
 
-    result = dict(row)
+    result = dict(row)
 
-    for key, value in list(result.items()):
+    for key, value in list(result.items()):
 
-        if isinstance(value, (datetime, date)):
+        if isinstance(value, (datetime, date)):
 
-            result[key] = value.isoformat()
+            result[key] = value.isoformat()
 
-    return result
+    return result
 
 
 
@@ -824,13 +815,13 @@ def serial(row: dict[str, Any]) -> dict[str, Any]:
 
 def index():
 
-    return jsonify({
+    return jsonify({
 
-        "success": True,
+        "success": True,
 
-        "message": "Pet Adoption API is running",
+        "message": "Pet Adoption API is running",
 
-    })
+    })
 
 
 
@@ -840,51 +831,51 @@ def index():
 
 def health():
 
-    """
+    """
 
-    Railway 健康檢查。
+    Railway 健康檢查。
 
-    不回傳密碼，只確認環境變數與 MySQL 是否可連線。
+    不回傳密碼，只確認環境變數與 MySQL 是否可連線。
 
-    """
+    """
 
-    try:
+    try:
 
-        db = get_db()
+        db = get_db()
 
-        try:
+        try:
 
-            with db.cursor() as cur:
+            with db.cursor() as cur:
 
-                cur.execute("SELECT 1 AS ok")
+                cur.execute("SELECT 1 AS ok")
 
-                row = cur.fetchone()
+                row = cur.fetchone()
 
-            return jsonify({
+            return jsonify({
 
-                "success": True,
+                "success": True,
 
-                "status": "ok",
+                "status": "ok",
 
-                "database": bool(row and row\.get("ok") == 1),
+                "database": bool(row and row.get("ok") == 1),
 
-            }), 200
+            }), 200
 
-        finally:
+        finally:
 
-            db.close()
+            db.close()
 
-    except Exception as exc:
+    except Exception as exc:
 
-        return jsonify({
+        return jsonify({
 
-            "success": False,
+            "success": False,
 
-            "status": "database_error",
+            "status": "database_error",
 
-            "message": str(exc),
+            "message": str(exc),
 
-        }), 500
+        }), 500
 
 
 
@@ -894,177 +885,177 @@ def health():
 
 def register():
 
-    data = body()
+    data = body()
 
-    email = str(data.get("email") or data.get("account") or "").strip().lower()
+    email = str(data.get("email") or data.get("account") or "").strip().lower()
 
-    account = email
+    account = email
 
-    password = str(data.get("password") or "")
+    password = str(data.get("password") or "")
 
-    verification_code = str(data.get("verification_code") or "").strip()
+    verification_code = str(data.get("verification_code") or "").strip()
 
 
 
-    if not email or not password:
+    if not email or not password:
 
-        return jsonify({"success": False, "message": "Gmail、密碼不可空白"}), 400
+        return jsonify({"success": False, "message": "Gmail、密碼不可空白"}), 400
 
-    if not is_valid_gmail(email):
+    if not is_valid_gmail(email):
 
-        return jsonify({
+        return jsonify({
 
-            "success": False,
+            "success": False,
 
-            "message": "帳號請使用 Gmail，例如 example\@gmail.com",
+            "message": "帳號請使用 Gmail，例如 example@gmail.com",
 
-        }), 400
+        }), 400
 
-    if len(password) < 6:
+    if len(password) < 6:
 
-        return jsonify({"success": False, "message": "密碼至少需要 6 個字元"}), 400
+        return jsonify({"success": False, "message": "密碼至少需要 6 個字元"}), 400
 
-    if not re.fullmatch(r"\d{6}", verification_code):
+    if not re.fullmatch(r"\d{6}", verification_code):
 
-        return jsonify({"success": False, "message": "請輸入 6 位數 Gmail 驗證碼"}), 400
+        return jsonify({"success": False, "message": "請輸入 6 位數 Gmail 驗證碼"}), 400
 
 
 
-    columns = [
+    columns = [
 
-        "name", "email", "password", "role", "phone", "address",
+        "name", "email", "password", "role", "phone", "address",
 
-        "living_environment", "pet_experience", "can_keep_pet",
+        "living_environment", "pet_experience", "can_keep_pet",
 
-        "daily_time", "pref_type", "pref_age", "pref_gender",
+        "daily_time", "pref_type", "pref_age", "pref_gender",
 
-        "family_child", "personality_pref", "can_cross_city",
+        "family_child", "personality_pref", "can_cross_city",
 
-        "can_take_special", "housing_size", "travel_frequency",
+        "can_take_special", "housing_size", "travel_frequency",
 
-        "living_stability", "monthly_budget", "child_age",
+        "living_stability", "monthly_budget", "child_age",
 
-        "has_other_pets", "allergy_tolerance", "only_neutered",
+        "has_other_pets", "allergy_tolerance", "only_neutered",
 
-        "only_vaccinated",
+        "only_vaccinated",
 
-    ]
+    ]
 
-    values = [
+    values = [
 
-        account, email, md5(password), "adopter",
+        account, email, md5(password), "adopter",
 
-        data.get("phone"), data.get("city"), data.get("housing"),
+        data.get("phone"), data.get("city"), data.get("housing"),
 
-        data.get("experience"), data.get("canKeepPet"), data.get("dailyTime"),
+        data.get("experience"), data.get("canKeepPet"), data.get("dailyTime"),
 
-        data.get("prefType"), data.get("prefAge"), data.get("prefGender"),
+        data.get("prefType"), data.get("prefAge"), data.get("prefGender"),
 
-        data.get("familyChild"), data.get("personalityPref"),
+        data.get("familyChild"), data.get("personalityPref"),
 
-        data.get("canCrossCity"), data.get("canTakeSpecial"),
+        data.get("canCrossCity"), data.get("canTakeSpecial"),
 
-        data.get("housingSize"), data.get("travelFrequency"),
+        data.get("housingSize"), data.get("travelFrequency"),
 
-        data.get("livingStability"), data.get("monthlyBudget"),
+        data.get("livingStability"), data.get("monthlyBudget"),
 
-        data.get("childAge"), data.get("hasOtherPets"),
+        data.get("childAge"), data.get("hasOtherPets"),
 
-        data.get("allergyTolerance"), data.get("onlyNeutered"),
+        data.get("allergyTolerance"), data.get("onlyNeutered"),
 
-        data.get("onlyVaccinated", True),
+        data.get("onlyVaccinated", True),
 
-    ]
+    ]
 
 
 
-    ensure_email_verification_table()
+    ensure_email_verification_table()
 
-    db = get_db()
+    db = get_db()
 
-    try:
+    try:
 
-        with db.cursor() as cur:
+        with db.cursor() as cur:
 
-            cur.execute("SELECT id FROM users WHERE email=%s LIMIT 1", (email,))
+            cur.execute("SELECT id FROM users WHERE email=%s LIMIT 1", (email,))
 
-            if cur.fetchone():
+            if cur.fetchone():
 
-                return jsonify({
+                return jsonify({
 
-                    "success": False,
+                    "success": False,
 
-                    "message": "此 Gmail 已註冊，一個 Gmail 只能建立一個帳號",
+                    "message": "此 Gmail 已註冊，一個 Gmail 只能建立一個帳號",
 
-                }), 409
+                }), 409
 
 
 
-            code_row = latest_valid_code(cur, email, "register")
+            code_row = latest_valid_code(cur, email, "register")
 
-            if not code_row:
+            if not code_row:
 
-                return jsonify({
+                return jsonify({
 
-                    "success": False,
+                    "success": False,
 
-                    "message": "驗證碼不存在或已過期，請重新取得",
+                    "message": "驗證碼不存在或已過期，請重新取得",
 
-                }), 400
+                }), 400
 
 
 
-            if not hmac.compare_digest(
+            if not hmac.compare_digest(
 
-                str(code_row["code_hash"]), verification_code_hash(verification_code)
+                str(code_row["code_hash"]), verification_code_hash(verification_code)
 
-            ):
+            ):
 
-                return jsonify({"success": False, "message": "Gmail 驗證碼錯誤"}), 400
+                return jsonify({"success": False, "message": "Gmail 驗證碼錯誤"}), 400
 
 
 
-            cur.execute(
+            cur.execute(
 
-                f"INSERT INTO users ({','.join(columns)}) VALUES ({','.join(['%s'] \* len(columns))})",
+                f"INSERT INTO users ({','.join(columns)}) VALUES ({','.join(['%s'] * len(columns))})",
 
-                values,
+                values,
 
-            )
+            )
 
-            user_id = cur.lastrowid
+            user_id = cur.lastrowid
 
-            cur.execute(
+            cur.execute(
 
-                "UPDATE email_verification_codes SET used_at=NOW() WHERE id=%s",
+                "UPDATE email_verification_codes SET used_at=NOW() WHERE id=%s",
 
-                (code_row["id"],),
+                (code_row["id"],),
 
-            )
+            )
 
 
 
-        db.commit()
+        db.commit()
 
-        return jsonify({
+        return jsonify({
 
-            "success": True,
+            "success": True,
 
-            "message": "Gmail 驗證完成，註冊成功",
+            "message": "Gmail 驗證完成，註冊成功",
 
-            "user_id": user_id,
+            "user_id": user_id,
 
-        }), 201
+        }), 201
 
-    except pymysql.MySQLError as exc:
+    except pymysql.MySQLError as exc:
 
-        db.rollback()
+        db.rollback()
 
-        return jsonify({"success": False, "message": f"資料庫錯誤：{exc}"}), 500
+        return jsonify({"success": False, "message": f"資料庫錯誤：{exc}"}), 500
 
-    finally:
+    finally:
 
-        db.close()
+        db.close()
 
 
 
@@ -1074,157 +1065,157 @@ def register():
 
 def login():
 
-    data = body()
+    data = body()
 
-    account = str(data.get("account") or "").strip().lower()
+    account = str(data.get("account") or "").strip().lower()
 
-    password = str(data.get("password") or "")
+    password = str(data.get("password") or "")
 
-    db = get_db()
+    db = get_db()
 
-    try:
+    try:
 
-        with db.cursor() as cur:
+        with db.cursor() as cur:
 
-            cur.execute(
+            cur.execute(
 
-                "SELECT \* FROM users WHERE email=%s AND password=%s LIMIT 1",
+                "SELECT * FROM users WHERE email=%s AND password=%s LIMIT 1",
 
-                (account, md5(password)),
+                (account, md5(password)),
 
-            )
+            )
 
-            user = cur.fetchone()
+            user = cur.fetchone()
 
-        if not user:
+        if not user:
 
-            return jsonify({"success": False, "message": "帳號或密碼錯誤"}), 401
-
-
-
-        user.pop("password", None)
-
-        user.update({
-
-            "account": user.get("name"),
-
-            "city": user.get("address"),
-
-            "housing": user.get("living_environment"),
-
-            "experience": user.get("pet_experience"),
-
-            "canKeepPet": bool(user.get("can_keep_pet")),
-
-            "canCrossCity": bool(user.get("can_cross_city")),
-
-            "canTakeSpecial": bool(user.get("can_take_special")),
-
-            "onlyNeutered": bool(user.get("only_neutered")),
-
-            "onlyVaccinated": bool(user.get("only_vaccinated")) if user.get("only_vaccinated") is not None else True,
-
-            "dailyTime": user.get("daily_time"),
-
-            "prefType": user.get("pref_type"),
-
-            "prefAge": user.get("pref_age"),
-
-            "prefGender": user.get("pref_gender"),
-
-            "familyChild": user.get("family_child"),
-
-            "personalityPref": user.get("personality_pref"),
-
-            "housingSize": user.get("housing_size"),
-
-            "travelFrequency": user.get("travel_frequency"),
-
-            "livingStability": user.get("living_stability"),
-
-            "monthlyBudget": user.get("monthly_budget"),
-
-            "childAge": user.get("child_age"),
-
-            "hasOtherPets": user.get("has_other_pets"),
-
-            "allergyTolerance": user.get("allergy_tolerance"),
-
-            "role": role_flutter(user.get("role")),
-
-        })
-
-        return jsonify({"success": True, "message": "登入成功", "user": serial(user)})
-
-    finally:
-
-        db.close()
+            return jsonify({"success": False, "message": "帳號或密碼錯誤"}), 401
 
 
 
+        user.pop("password", None)
+
+        user.update({
+
+            "account": user.get("name"),
+
+            "city": user.get("address"),
+
+            "housing": user.get("living_environment"),
+
+            "experience": user.get("pet_experience"),
+
+            "canKeepPet": bool(user.get("can_keep_pet")),
+
+            "canCrossCity": bool(user.get("can_cross_city")),
+
+            "canTakeSpecial": bool(user.get("can_take_special")),
+
+            "onlyNeutered": bool(user.get("only_neutered")),
+
+            "onlyVaccinated": bool(user.get("only_vaccinated")) if user.get("only_vaccinated") is not None else True,
+
+            "dailyTime": user.get("daily_time"),
+
+            "prefType": user.get("pref_type"),
+
+            "prefAge": user.get("pref_age"),
+
+            "prefGender": user.get("pref_gender"),
+
+            "familyChild": user.get("family_child"),
+
+            "personalityPref": user.get("personality_pref"),
+
+            "housingSize": user.get("housing_size"),
+
+            "travelFrequency": user.get("travel_frequency"),
+
+            "livingStability": user.get("living_stability"),
+
+            "monthlyBudget": user.get("monthly_budget"),
+
+            "childAge": user.get("child_age"),
+
+            "hasOtherPets": user.get("has_other_pets"),
+
+            "allergyTolerance": user.get("allergy_tolerance"),
+
+            "role": role_flutter(user.get("role")),
+
+        })
+
+        return jsonify({"success": True, "message": "登入成功", "user": serial(user)})
+
+    finally:
+
+        db.close()
 
 
-@app.put("/users/\<int:user_id>/active-role")
+
+
+
+@app.put("/users/<int:user_id>/active-role")
 
 def update_active_role(user_id: int):
 
-    """切換同一帳號目前使用中的身分，不建立新帳號。"""
+    """切換同一帳號目前使用中的身分，不建立新帳號。"""
 
-    data = body()
+    data = body()
 
-    flutter_role = str(data.get("role") or "").strip()
+    flutter_role = str(data.get("role") or "").strip()
 
-    if flutter_role not in {"領養者", "送養者"}:
+    if flutter_role not in {"領養者", "送養者"}:
 
-        return jsonify({"success": False, "message": "身分只能是領養者或送養者"}), 400
-
-
-
-    new_role = role_db(flutter_role)
-
-    db = get_db()
-
-    try:
-
-        with db.cursor() as cur:
-
-            cur.execute("SELECT role FROM users WHERE id=%s LIMIT 1", (user_id,))
-
-            row = cur.fetchone()
-
-            if not row:
-
-                return jsonify({"success": False, "message": "找不到使用者"}), 404
-
-            if row\.get("role") == "admin":
-
-                return jsonify({"success": False, "message": "管理員身分不可切換"}), 403
+        return jsonify({"success": False, "message": "身分只能是領養者或送養者"}), 400
 
 
 
-            cur.execute("UPDATE users SET role=%s WHERE id=%s", (new_role, user_id))
+    new_role = role_db(flutter_role)
 
-        db.commit()
+    db = get_db()
 
-        return jsonify({
+    try:
 
-            "success": True,
+        with db.cursor() as cur:
 
-            "message": "身分切換成功",
+            cur.execute("SELECT role FROM users WHERE id=%s LIMIT 1", (user_id,))
 
-            "role": flutter_role,
+            row = cur.fetchone()
 
-        })
+            if not row:
 
-    except pymysql.MySQLError as exc:
+                return jsonify({"success": False, "message": "找不到使用者"}), 404
 
-        db.rollback()
+            if row.get("role") == "admin":
 
-        return jsonify({"success": False, "message": f"資料庫錯誤：{exc}"}), 500
+                return jsonify({"success": False, "message": "管理員身分不可切換"}), 403
 
-    finally:
 
-        db.close()
+
+            cur.execute("UPDATE users SET role=%s WHERE id=%s", (new_role, user_id))
+
+        db.commit()
+
+        return jsonify({
+
+            "success": True,
+
+            "message": "身分切換成功",
+
+            "role": flutter_role,
+
+        })
+
+    except pymysql.MySQLError as exc:
+
+        db.rollback()
+
+        return jsonify({"success": False, "message": f"資料庫錯誤：{exc}"}), 500
+
+    finally:
+
+        db.close()
 
 
 
@@ -1234,127 +1225,127 @@ def update_active_role(user_id: int):
 
 def animals():
 
-    db = get_db()
+    db = get_db()
 
-    try:
+    try:
 
-        with db.cursor() as cur:
+        with db.cursor() as cur:
 
-            cur.execute("""
+            cur.execute("""
 
-                SELECT a.\*, u.name AS foster_account
+                SELECT a.*, u.name AS foster_account
 
-                FROM animals a
+                FROM animals a
 
-                LEFT JOIN users u ON u.id=a.foster_id
+                LEFT JOIN users u ON u.id=a.foster_id
 
-                ORDER BY a.announcement_date DESC, a.created_at DESC
+                ORDER BY a.announcement_date DESC, a.created_at DESC
 
-            """)
+            """)
 
-            rows = cur.fetchall()
+            rows = cur.fetchall()
 
-        result = []
+        result = []
 
-        for a in rows:
+        for a in rows:
 
-            stored_chip = str(a.get("chip_number") or "")
+            stored_chip = str(a.get("chip_number") or "")
 
-            is_internal_key = (
+            is_internal_key = (
 
-                stored_chip.startswith("NOCHIP-")
+                stored_chip.startswith("NOCHIP-")
 
-                or stored_chip.startswith("UNKNOWNCHIP-")
+                or stored_chip.startswith("UNKNOWNCHIP-")
 
-            )
-
-
-
-            # chip_number 在舊資料庫中仍負責當唯一識別鍵。
-
-            # 若沒有真實晶片號碼，後端會使用內部識別碼保存，
-
-            # 但回傳給 Flutter 的 chip_number 會是 null，
-
-            # id 則保留內部識別碼，讓申請、收藏等既有功能仍能運作。
-
-            public_chip = None if is_internal_key else (stored_chip or None)
+            )
 
 
 
-            result.append({
+            # chip_number 在舊資料庫中仍負責當唯一識別鍵。
 
-                "id": stored_chip,
+            # 若沒有真實晶片號碼，後端會使用內部識別碼保存，
 
-                "chip_number": public_chip,
+            # 但回傳給 Flutter 的 chip_number 會是 null，
 
-                "has_chip": bool(a.get("has_chip")),
+            # id 則保留內部識別碼，讓申請、收藏等既有功能仍能運作。
 
-                "chip_number_known": bool(public_chip),
+            public_chip = None if is_internal_key else (stored_chip or None)
 
-                "name": a.get("name") or "未命名",
 
-                "type": "狗" if a.get("species") in ("犬", "狗") else a.get("species"),
 
-                "species": a.get("species"),
+            result.append({
 
-                "place": a.get("location") or a.get("shelter_name") or "未提供",
+                "id": stored_chip,
 
-                "age": a.get("age_group") or "未提供",
+                "chip_number": public_chip,
 
-                "gender": a.get("gender") or "未提供",
+                "has_chip": bool(a.get("has_chip")),
 
-                "size": a.get("size") or "未提供",
+                "chip_number_known": bool(public_chip),
 
-                "personality": a.get("personality") or "未提供",
+                "name": a.get("name") or "未命名",
 
-                "healthStatus": a.get("health_status") or "未提供",
+                "type": "狗" if a.get("species") in ("犬", "狗") else a.get("species"),
 
-                "isNeutered": bool(a.get("is_neutered")),
+                "species": a.get("species"),
 
-                "isVaccinated": bool(a.get("is_vaccinated")),
+                "place": a.get("location") or a.get("shelter_name") or "未提供",
 
-                "ownerType": a.get("owner_type") or "收容所",
+                "age": a.get("age_group") or "未提供",
 
-                "owner": a.get("foster_account") or a.get("owner_name") or "系統資料",
+                "gender": a.get("gender") or "未提供",
 
-                "owner_id": a.get("foster_id"),
+                "size": a.get("size") or "未提供",
 
-                "desc": a.get("description") or a.get("surrender_reason") or "",
+                "personality": a.get("personality") or "未提供",
 
-                "status": {
+                "healthStatus": a.get("health_status") or "未提供",
 
-                    "available": "待領養",
+                "isNeutered": bool(a.get("is_neutered")),
 
-                    "trial": "試養中",
+                "isVaccinated": bool(a.get("is_vaccinated")),
 
-                    "adopted": "正式領養",
+                "ownerType": a.get("owner_type") or "收容所",
 
-                    "unavailable": "已下架",
+                "owner": a.get("foster_account") or a.get("owner_name") or "系統資料",
 
-                }.get(a.get("status"), a.get("status") or "待領養"),
+                "owner_id": a.get("foster_id"),
 
-                "photo": a.get("photo_url"),
+                "desc": a.get("description") or a.get("surrender_reason") or "",
 
-                "photos": json.loads(a.get("media_json")) if a.get("media_json") else ([a.get("photo_url")] if a.get("photo_url") else []),
+                "status": {
 
-                "video": a.get("video_url"),
+                    "available": "待領養",
 
-                "breed": a.get("breed"),
+                    "trial": "試養中",
 
-                "coatColor": a.get("coat_color"),
+                    "adopted": "正式領養",
 
-                "shelterName": a.get("shelter_name"),
+                    "unavailable": "已下架",
 
-                "announcementDate": serial({"d": a.get("announcement_date")})["d"],
+                }.get(a.get("status"), a.get("status") or "待領養"),
 
-            })
+                "photo": a.get("photo_url"),
 
-        return jsonify(result)
+                "photos": json.loads(a.get("media_json")) if a.get("media_json") else ([a.get("photo_url")] if a.get("photo_url") else []),
 
-    finally:
+                "video": a.get("video_url"),
 
-        db.close()
+                "breed": a.get("breed"),
+
+                "coatColor": a.get("coat_color"),
+
+                "shelterName": a.get("shelter_name"),
+
+                "announcementDate": serial({"d": a.get("announcement_date")})["d"],
+
+            })
+
+        return jsonify(result)
+
+    finally:
+
+        db.close()
 
 
 
@@ -1364,239 +1355,239 @@ def animals():
 
 def create_animal():
 
-    data = body()
+    data = body()
 
 
 
-    name = str(data.get("name") or "").strip()
+    name = str(data.get("name") or "").strip()
 
-    if not name:
+    if not name:
 
-        return jsonify({
+        return jsonify({
 
-            "success": False,
+            "success": False,
 
-            "message": "寵物名稱不可空白",
+            "message": "寵物名稱不可空白",
 
-        }), 400
+        }), 400
 
 
 
-    # Flutter 會傳：
+    # Flutter 會傳：
 
-    # has_chip = false                  -> 沒有晶片
+    # has_chip = false                  -> 沒有晶片
 
-    # has_chip = true + chip_number     -> 有晶片且知道號碼
+    # has_chip = true + chip_number     -> 有晶片且知道號碼
 
-    # has_chip = true + chip_number=null -> 有晶片但忘記/不知道號碼
+    # has_chip = true + chip_number=null -> 有晶片但忘記/不知道號碼
 
-    raw_has_chip = data.get("has_chip", False)
+    raw_has_chip = data.get("has_chip", False)
 
-    if isinstance(raw_has_chip, str):
+    if isinstance(raw_has_chip, str):
 
-        has_chip = raw_has_chip.strip().lower() in {
+        has_chip = raw_has_chip.strip().lower() in {
 
-            "1", "true", "yes", "y", "on"
+            "1", "true", "yes", "y", "on"
 
-        }
+        }
 
-    else:
+    else:
 
-        has_chip = bool(raw_has_chip)
+        has_chip = bool(raw_has_chip)
 
 
 
-    real_chip = str(data.get("chip_number") or "").strip()
+    real_chip = str(data.get("chip_number") or "").strip()
 
 
 
-    # 有晶片且使用者表示知道號碼時，才使用真正晶片號碼。
+    # 有晶片且使用者表示知道號碼時，才使用真正晶片號碼。
 
-    if has_chip and real_chip:
+    if has_chip and real_chip:
 
-        stored_chip = real_chip
+        stored_chip = real_chip
 
-        chip_number_known = True
+        chip_number_known = True
 
 
 
-    # 有晶片但不知道號碼：
+    # 有晶片但不知道號碼：
 
-    # 舊資料庫仍以 chip_number 作為主要關聯欄位，
+    # 舊資料庫仍以 chip_number 作為主要關聯欄位，
 
-    # 因此產生「內部識別碼」維持申請/收藏/狀態更新功能。
+    # 因此產生「內部識別碼」維持申請/收藏/狀態更新功能。
 
-    elif has_chip:
+    elif has_chip:
 
-        stored_chip = "UNKNOWNCHIP-" + uuid.uuid4().hex
+        stored_chip = "UNKNOWNCHIP-" + uuid.uuid4().hex
 
-        chip_number_known = False
+        chip_number_known = False
 
 
 
-    # 沒有晶片也需要一個內部識別碼，
+    # 沒有晶片也需要一個內部識別碼，
 
-    # 避免舊資料庫 chip_number NOT NULL / PRIMARY KEY 造成新增失敗。
+    # 避免舊資料庫 chip_number NOT NULL / PRIMARY KEY 造成新增失敗。
 
-    else:
+    else:
 
-        stored_chip = "NOCHIP-" + uuid.uuid4().hex
+        stored_chip = "NOCHIP-" + uuid.uuid4().hex
 
-        chip_number_known = False
+        chip_number_known = False
 
 
 
-    db = get_db()
+    db = get_db()
 
-    try:
+    try:
 
-        with db.cursor() as cur:
+        with db.cursor() as cur:
 
-            # 如果填了真正晶片號碼，先檢查是否已存在，避免重複發布。
+            # 如果填了真正晶片號碼，先檢查是否已存在，避免重複發布。
 
-            if chip_number_known:
+            if chip_number_known:
 
-                cur.execute(
+                cur.execute(
 
-                    "SELECT chip_number FROM animals WHERE chip_number=%s LIMIT 1",
+                    "SELECT chip_number FROM animals WHERE chip_number=%s LIMIT 1",
 
-                    (stored_chip,),
+                    (stored_chip,),
 
-                )
+                )
 
-                if cur.fetchone():
+                if cur.fetchone():
 
-                    return jsonify({
+                    return jsonify({
 
-                        "success": False,
+                        "success": False,
 
-                        "message": "此晶片號碼已存在，請確認是否重複發布",
+                        "message": "此晶片號碼已存在，請確認是否重複發布",
 
-                    }), 409
+                    }), 409
 
 
 
-            cur.execute("""
+            cur.execute("""
 
-                INSERT INTO animals
+                INSERT INTO animals
 
-                (chip_number,has_chip,name,species,gender,breed,coat_color,size,
+                (chip_number,has_chip,name,species,gender,breed,coat_color,size,
 
-                 surrender_reason,owner_name,shelter_name,announcement_date,
+                 surrender_reason,owner_name,shelter_name,announcement_date,
 
-                 age_group,personality,health_status,is_neutered,is_vaccinated,owner_type,
+                 age_group,personality,health_status,is_neutered,is_vaccinated,owner_type,
 
-                 foster_id,description,status,location,photo_url,video_url,media_json)
+                 foster_id,description,status,location,photo_url,video_url,media_json)
 
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,CURDATE(),
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,CURDATE(),
 
-                        %s,%s,%s,%s,%s,%s,%s,%s,'available',%s,%s,%s,%s)
+                        %s,%s,%s,%s,%s,%s,%s,%s,'available',%s,%s,%s,%s)
 
-            """, (
+            """, (
 
-                stored_chip,
+                stored_chip,
 
-                1 if has_chip else 0,
+                1 if has_chip else 0,
 
-                name,
+                name,
 
-                data.get("species"),
+                data.get("species"),
 
-                data.get("gender"),
+                data.get("gender"),
 
-                data.get("breed"),
+                data.get("breed"),
 
-                data.get("coat_color"),
+                data.get("coat_color"),
 
-                data.get("size"),
+                data.get("size"),
 
-                data.get("surrender_reason"),
+                data.get("surrender_reason"),
 
-                data.get("owner_name"),
+                data.get("owner_name"),
 
-                data.get("shelter_name"),
+                data.get("shelter_name"),
 
-                data.get("age"),
+                data.get("age"),
 
-                data.get("personality"),
+                data.get("personality"),
 
-                data.get("healthStatus"),
+                data.get("healthStatus"),
 
-                data.get("isNeutered"),
+                data.get("isNeutered"),
 
-                data.get("isVaccinated"),
+                data.get("isVaccinated"),
 
-                data.get("ownerType"),
+                data.get("ownerType"),
 
-                data.get("foster_id"),
+                data.get("foster_id"),
 
-                data.get("desc"),
+                data.get("desc"),
 
-                data.get("place"),
+                data.get("place"),
 
-                data.get("photo"),
+                data.get("photo"),
 
-                data.get("video"),
+                data.get("video"),
 
-                json.dumps(data.get("photos") or [], ensure_ascii=False),
+                json.dumps(data.get("photos") or [], ensure_ascii=False),
 
-            ))
+            ))
 
 
 
-        db.commit()
+        db.commit()
 
 
 
-        return jsonify({
+        return jsonify({
 
-            "success": True,
+            "success": True,
 
-            "message": "寵物發布成功",
+            "message": "寵物發布成功",
 
-            "animal": {
+            "animal": {
 
-                # id 是系統內部唯一識別值，既有 Flutter 可用它做申請/收藏
+                # id 是系統內部唯一識別值，既有 Flutter 可用它做申請/收藏
 
-                "id": stored_chip,
+                "id": stored_chip,
 
 
 
-                # 真正晶片號碼；不知道/沒有晶片時回傳 null
+                # 真正晶片號碼；不知道/沒有晶片時回傳 null
 
-                "chip_number": real_chip if chip_number_known else None,
+                "chip_number": real_chip if chip_number_known else None,
 
 
 
-                "has_chip": has_chip,
+                "has_chip": has_chip,
 
-                "chip_number_known": chip_number_known,
+                "chip_number_known": chip_number_known,
 
-                "isVaccinated": bool(data.get("isVaccinated")),
+                "isVaccinated": bool(data.get("isVaccinated")),
 
-                "name": name,
+                "name": name,
 
-            },
+            },
 
-        }), 201
+        }), 201
 
 
 
-    except pymysql.MySQLError as exc:
+    except pymysql.MySQLError as exc:
 
-        db.rollback()
+        db.rollback()
 
-        return jsonify({
+        return jsonify({
 
-            "success": False,
+            "success": False,
 
-            "message": f"資料庫錯誤：{exc}",
+            "message": f"資料庫錯誤：{exc}",
 
-        }), 500
+        }), 500
 
-    finally:
+    finally:
 
-        db.close()
+        db.close()
 
 
 
@@ -1606,65 +1597,65 @@ def create_animal():
 
 def upload_media():
 
-    media_type = str(request.form.get("media_type") or "").strip().lower()
+    media_type = str(request.form.get("media_type") or "").strip().lower()
 
-    file = request.files.get("file")
+    file = request.files.get("file")
 
-    if media_type not in {"photo", "video"}:
+    if media_type not in {"photo", "video"}:
 
-        return jsonify({"success": False, "message": "media_type 必須是 photo 或 video"}), 400
+        return jsonify({"success": False, "message": "media_type 必須是 photo 或 video"}), 400
 
-    if file is None or not file.filename:
+    if file is None or not file.filename:
 
-        return jsonify({"success": False, "message": "沒有選擇檔案"}), 400
-
-
-
-    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
-
-    allowed = PHOTO_EXTENSIONS if media_type == "photo" else VIDEO_EXTENSIONS
-
-    max_bytes = PHOTO_MAX_BYTES if media_type == "photo" else VIDEO_MAX_BYTES
-
-    if ext not in allowed:
-
-        return jsonify({"success": False, "message": f"不支援的檔案格式：{ext}"}), 400
+        return jsonify({"success": False, "message": "沒有選擇檔案"}), 400
 
 
 
-    file.stream.seek(0, os.SEEK_END)
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
 
-    size = file.stream.tell()
+    allowed = PHOTO_EXTENSIONS if media_type == "photo" else VIDEO_EXTENSIONS
 
-    file.stream.seek(0)
+    max_bytes = PHOTO_MAX_BYTES if media_type == "photo" else VIDEO_MAX_BYTES
 
-    if size > max_bytes:
+    if ext not in allowed:
 
-        limit_mb = max_bytes // (1024 \* 1024)
-
-        return jsonify({"success": False, "message": f"檔案不可超過 {limit_mb}MB"}), 413
+        return jsonify({"success": False, "message": f"不支援的檔案格式：{ext}"}), 400
 
 
 
-    safe_name = secure_filename(file.filename) or f"upload.{ext}"
+    file.stream.seek(0, os.SEEK_END)
 
-    filename = f"{uuid.uuid4().hex}\_{safe_name}"
+    size = file.stream.tell()
 
-    file.save(os.path.join(UPLOAD_FOLDER, filename))
+    file.stream.seek(0)
 
-    url = request.host_url.rstrip("/") + "/uploads/" + filename
+    if size > max_bytes:
 
-    return jsonify({"success": True, "url": url, "size": size}), 201
+        limit_mb = max_bytes // (1024 * 1024)
+
+        return jsonify({"success": False, "message": f"檔案不可超過 {limit_mb}MB"}), 413
+
+
+
+    safe_name = secure_filename(file.filename) or f"upload.{ext}"
+
+    filename = f"{uuid.uuid4().hex}_{safe_name}"
+
+    file.save(os.path.join(UPLOAD_FOLDER, filename))
+
+    url = request.host_url.rstrip("/") + "/uploads/" + filename
+
+    return jsonify({"success": True, "url": url, "size": size}), 201
 
 
 
 
 
-@app.get("/uploads/\<path:filename>")
+@app.get("/uploads/<path:filename>")
 
 def uploaded_file(filename: str):
 
-    return send_from_directory(UPLOAD_FOLDER, filename)
+    return send_from_directory(UPLOAD_FOLDER, filename)
 
 
 
@@ -1674,71 +1665,71 @@ def uploaded_file(filename: str):
 
 def create_application():
 
-    data = body()
+    data = body()
 
-    user_id = data.get("user_id")
+    user_id = data.get("user_id")
 
-    chip = str(data.get("chip_number") or "").strip()
+    chip = str(data.get("chip_number") or "").strip()
 
-    if not user_id or not chip:
+    if not user_id or not chip:
 
-        return jsonify({"success": False, "message": "缺少 user_id 或 chip_number"}), 400
+        return jsonify({"success": False, "message": "缺少 user_id 或 chip_number"}), 400
 
 
 
-    db = get_db()
+    db = get_db()
 
-    try:
+    try:
 
-        with db.cursor() as cur:
+        with db.cursor() as cur:
 
-            cur.execute(
+            cur.execute(
 
-                "SELECT id FROM applications WHERE user_id=%s AND chip_number=%s",
+                "SELECT id FROM applications WHERE user_id=%s AND chip_number=%s",
 
-                (user_id, chip),
+                (user_id, chip),
 
-            )
+            )
 
-            if cur.fetchone():
+            if cur.fetchone():
 
-                return jsonify({"success": False, "message": "你已申請過這隻寵物"}), 409
+                return jsonify({"success": False, "message": "你已申請過這隻寵物"}), 409
 
-            cur.execute("""
+            cur.execute("""
 
-                INSERT INTO applications
+                INSERT INTO applications
 
-                (user_id,chip_number,status,adopter_name,phone,
+                (user_id,chip_number,status,adopter_name,phone,
 
-                 living_environment,pet_experience,message)
+                 living_environment,pet_experience,message)
 
-                VALUES (%s,%s,'pending',%s,%s,%s,%s,%s)
+                VALUES (%s,%s,'pending',%s,%s,%s,%s,%s)
 
-            """, (
+            """, (
 
-                user_id, chip, data.get("adopter_name"), data.get("phone"),
+                user_id, chip, data.get("adopter_name"), data.get("phone"),
 
-                data.get("living_environment"), data.get("pet_experience"),
+                data.get("living_environment"), data.get("pet_experience"),
 
-                data.get("message"),
+                data.get("message"),
 
-            ))
+            ))
 
-            app_id = cur.lastrowid
+            app_id = cur.lastrowid
 
-        db.commit()
+        db.commit()
 
-        return jsonify({"success": True, "message": "申請送出成功", "application_id": app_id}), 201
+        return jsonify({"success": True, "message": "申請送出成功", "application_id": app_id}), 201
 
-    except pymysql.MySQLError as exc:
+    except pymysql.MySQLError as exc:
 
-        db.rollback()
+        db.rollback()
 
-        return jsonify({"success": False, "message": f"資料庫錯誤：{exc}"}), 500
+        return jsonify({"success": False, "message": f"資料庫錯誤：{exc}"}), 500
 
-    finally:
+    finally:
 
-        db.close()
+        db.close()
 
 
 
@@ -1746,227 +1737,227 @@ def create_application():
 
 def application_query(where: str, value: int):
 
-    db = get_db()
+    db = get_db()
 
-    try:
+    try:
 
-        with db.cursor() as cur:
+        with db.cursor() as cur:
 
-            cur.execute(f"""
+            cur.execute(f"""
 
-                SELECT ap.\*, a.name AS pet, a.species,
+                SELECT ap.*, a.name AS pet, a.species,
 
-                       COALESCE(adopter.name, ap.adopter_name, '未提供') AS user,
+                       COALESCE(adopter.name, ap.adopter_name, '未提供') AS user,
 
-                       COALESCE(owner.name, a.owner_name, a.shelter_name, '系統資料') AS owner
+                       COALESCE(owner.name, a.owner_name, a.shelter_name, '系統資料') AS owner
 
-                FROM applications ap
+                FROM applications ap
 
-                LEFT JOIN animals a ON a.chip_number=ap.chip_number
+                LEFT JOIN animals a ON a.chip_number=ap.chip_number
 
-                LEFT JOIN users adopter ON adopter.id=ap.user_id
+                LEFT JOIN users adopter ON adopter.id=ap.user_id
 
-                LEFT JOIN users owner ON owner.id=a.foster_id
+                LEFT JOIN users owner ON owner.id=a.foster_id
 
-                WHERE {where}=%s
+                WHERE {where}=%s
 
-                ORDER BY ap.created_at DESC, ap.id DESC
+                ORDER BY ap.created_at DESC, ap.id DESC
 
-            """, (value,))
+            """, (value,))
 
-            return [serial(row) for row in cur.fetchall()]
+            return [serial(row) for row in cur.fetchall()]
 
-    finally:
+    finally:
 
-        db.close()
-
-
+        db.close()
 
 
 
-@app.get("/applications/user/\<int:user_id>")
+
+
+@app.get("/applications/user/<int:user_id>")
 
 def user_applications(user_id: int):
 
-    return jsonify(application_query("ap.user_id", user_id))
+    return jsonify(application_query("ap.user_id", user_id))
 
 
 
 
 
-@app.get("/applications/owner/\<int:owner_id>")
+@app.get("/applications/owner/<int:owner_id>")
 
 def owner_applications(owner_id: int):
 
-    return jsonify(application_query("a.foster_id", owner_id))
+    return jsonify(application_query("a.foster_id", owner_id))
 
 
 
 
 
-\# ========================= 取消領養申請 =========================
+# ========================= 取消領養申請 =========================
 
-@app.route("/applications/\<int:application_id>", methods=["DELETE", "OPTIONS"])
+@app.route("/applications/<int:application_id>", methods=["DELETE", "OPTIONS"])
 
 def cancel_application(application_id: int):
 
-    # Flutter Web 的 DELETE 可能先送 OPTIONS 預檢
+    # Flutter Web 的 DELETE 可能先送 OPTIONS 預檢
 
-    if request.method == "OPTIONS":
+    if request.method == "OPTIONS":
 
-        return "", 204
-
-
-
-    user_id = request.args.get("user_id", type=int)
-
-    if not user_id:
-
-        return jsonify({"success": False, "message": "缺少 user_id"}), 400
+        return "", 204
 
 
 
-    db = get_db()
+    user_id = request.args.get("user_id", type=int)
 
-    try:
+    if not user_id:
 
-        with db.cursor() as cur:
-
-            cur.execute("""
-
-                SELECT id, user_id, chip_number, status
-
-                FROM applications
-
-                WHERE id=%s AND user_id=%s
-
-                LIMIT 1
-
-            """, (application_id, user_id))
-
-            application = cur.fetchone()
+        return jsonify({"success": False, "message": "缺少 user_id"}), 400
 
 
 
-            if not application:
+    db = get_db()
 
-                return jsonify({
+    try:
 
-                    "success": False,
+        with db.cursor() as cur:
 
-                    "message": "找不到申請，或申請不屬於目前使用者",
+            cur.execute("""
 
-                }), 404
+                SELECT id, user_id, chip_number, status
 
+                FROM applications
 
+                WHERE id=%s AND user_id=%s
 
-            if str(application.get("status") or "").strip() != "pending":
+                LIMIT 1
 
-                return jsonify({
+            """, (application_id, user_id))
 
-                    "success": False,
-
-                    "message": "只有待審核中的申請可以取消",
-
-                }), 400
+            application = cur.fetchone()
 
 
 
-            cur.execute(
+            if not application:
 
-                "DELETE FROM applications WHERE id=%s AND user_id=%s",
+                return jsonify({
 
-                (application_id, user_id),
+                    "success": False,
 
-            )
+                    "message": "找不到申請，或申請不屬於目前使用者",
 
-
-
-        db.commit()
-
-        return jsonify({"success": True, "message": "申請已取消"}), 200
-
-    except pymysql.MySQLError as exc:
-
-        db.rollback()
-
-        return jsonify({"success": False, "message": f"資料庫錯誤：{exc}"}), 500
-
-    finally:
-
-        db.close()
+                }), 404
 
 
 
+            if str(application.get("status") or "").strip() != "pending":
+
+                return jsonify({
+
+                    "success": False,
+
+                    "message": "只有待審核中的申請可以取消",
+
+                }), 400
 
 
-@app.put("/applications/\<int:application_id>/status")
+
+            cur.execute(
+
+                "DELETE FROM applications WHERE id=%s AND user_id=%s",
+
+                (application_id, user_id),
+
+            )
+
+
+
+        db.commit()
+
+        return jsonify({"success": True, "message": "申請已取消"}), 200
+
+    except pymysql.MySQLError as exc:
+
+        db.rollback()
+
+        return jsonify({"success": False, "message": f"資料庫錯誤：{exc}"}), 500
+
+    finally:
+
+        db.close()
+
+
+
+
+
+@app.put("/applications/<int:application_id>/status")
 
 def update_application_status(application_id: int):
 
-    status = str(body().get("status") or "")
+    status = str(body().get("status") or "")
 
-    if status not in {
+    if status not in {
 
-        "pending", "approved", "rejected", "trial",
+        "pending", "approved", "rejected", "trial",
 
-        "adopted", "trial_failed", "cancelled"
+        "adopted", "trial_failed", "cancelled"
 
-    }:
+    }:
 
-        return jsonify({"success": False, "message": "不合法的狀態"}), 400
+        return jsonify({"success": False, "message": "不合法的狀態"}), 400
 
 
 
-    db = get_db()
+    db = get_db()
 
-    try:
+    try:
 
-        with db.cursor() as cur:
+        with db.cursor() as cur:
 
-            cur.execute("SELECT chip_number FROM applications WHERE id=%s", (application_id,))
+            cur.execute("SELECT chip_number FROM applications WHERE id=%s", (application_id,))
 
-            row = cur.fetchone()
+            row = cur.fetchone()
 
-            if not row:
+            if not row:
 
-                return jsonify({"success": False, "message": "找不到申請"}), 404
+                return jsonify({"success": False, "message": "找不到申請"}), 404
 
-            cur.execute("UPDATE applications SET status=%s WHERE id=%s", (status, application_id))
+            cur.execute("UPDATE applications SET status=%s WHERE id=%s", (status, application_id))
 
-            animal_status = {
+            animal_status = {
 
-                "rejected": "available",
+                "rejected": "available",
 
-                "trial_failed": "available",
+                "trial_failed": "available",
 
-                "cancelled": "available",
+                "cancelled": "available",
 
-                "trial": "trial",
+                "trial": "trial",
 
-                "approved": "adopted",
+                "approved": "adopted",
 
-                "adopted": "adopted",
+                "adopted": "adopted",
 
-            }.get(status)
+            }.get(status)
 
-            if animal_status:
+            if animal_status:
 
-                cur.execute(
+                cur.execute(
 
-                    "UPDATE animals SET status=%s WHERE chip_number=%s",
+                    "UPDATE animals SET status=%s WHERE chip_number=%s",
 
-                    (animal_status, row["chip_number"]),
+                    (animal_status, row["chip_number"]),
 
-                )
+                )
 
-        db.commit()
+        db.commit()
 
-        return jsonify({"success": True, "message": "狀態更新成功"})
+        return jsonify({"success": True, "message": "狀態更新成功"})
 
-    finally:
+    finally:
 
-        db.close()
+        db.close()
 
 
 
@@ -1976,41 +1967,41 @@ def update_application_status(application_id: int):
 
 def get_chat_messages():
 
-    pet = str(request.args.get("pet_name") or "")
+    pet = str(request.args.get("pet_name") or "")
 
-    user_a = str(request.args.get("user_a") or "")
+    user_a = str(request.args.get("user_a") or "")
 
-    user_b = str(request.args.get("user_b") or "")
+    user_b = str(request.args.get("user_b") or "")
 
-    db = get_db()
+    db = get_db()
 
-    try:
+    try:
 
-        with db.cursor() as cur:
+        with db.cursor() as cur:
 
-            cur.execute("""
+            cur.execute("""
 
-                SELECT id, pet_name, sender, receiver, message, created_at
+                SELECT id, pet_name, sender, receiver, message, created_at
 
-                FROM chat_messages
+                FROM chat_messages
 
-                WHERE pet_name=%s
+                WHERE pet_name=%s
 
-                  AND ((sender=%s AND receiver=%s)
+                  AND ((sender=%s AND receiver=%s)
 
-                    OR (sender=%s AND receiver=%s))
+                    OR (sender=%s AND receiver=%s))
 
-                ORDER BY created_at ASC, id ASC
+                ORDER BY created_at ASC, id ASC
 
-            """, (pet, user_a, user_b, user_b, user_a))
+            """, (pet, user_a, user_b, user_b, user_a))
 
-            rows = cur.fetchall()
+            rows = cur.fetchall()
 
-        return jsonify([serial(row) for row in rows])
+        return jsonify([serial(row) for row in rows])
 
-    finally:
+    finally:
 
-        db.close()
+        db.close()
 
 
 
@@ -2020,43 +2011,43 @@ def get_chat_messages():
 
 def send_chat_message():
 
-    data = body()
+    data = body()
 
-    pet = str(data.get("pet_name") or "").strip()
+    pet = str(data.get("pet_name") or "").strip()
 
-    sender = str(data.get("sender") or "").strip()
+    sender = str(data.get("sender") or "").strip()
 
-    receiver = str(data.get("receiver") or "").strip()
+    receiver = str(data.get("receiver") or "").strip()
 
-    message = str(data.get("message") or "").strip()
+    message = str(data.get("message") or "").strip()
 
-    if not pet or not sender or not receiver or not message:
+    if not pet or not sender or not receiver or not message:
 
-        return jsonify({"success": False, "message": "聊天資料不完整"}), 400
+        return jsonify({"success": False, "message": "聊天資料不完整"}), 400
 
 
 
-    db = get_db()
+    db = get_db()
 
-    try:
+    try:
 
-        with db.cursor() as cur:
+        with db.cursor() as cur:
 
-            cur.execute(
+            cur.execute(
 
-                "INSERT INTO chat_messages (pet_name,sender,receiver,message) VALUES (%s,%s,%s,%s)",
+                "INSERT INTO chat_messages (pet_name,sender,receiver,message) VALUES (%s,%s,%s,%s)",
 
-                (pet, sender, receiver, message),
+                (pet, sender, receiver, message),
 
-            )
+            )
 
-        db.commit()
+        db.commit()
 
-        return jsonify({"success": True, "message": "訊息已送出"}), 201
+        return jsonify({"success": True, "message": "訊息已送出"}), 201
 
-    finally:
+    finally:
 
-        db.close()
+        db.close()
 
 
 
@@ -2066,33 +2057,33 @@ def send_chat_message():
 
 def get_adopters():
 
-    db = get_db()
+    db = get_db()
 
-    try:
+    try:
 
-        with db.cursor() as cur:
+        with db.cursor() as cur:
 
-            cur.execute("""
+            cur.execute("""
 
-                SELECT id, name AS account, email, phone, address AS city,
+                SELECT id, name AS account, email, phone, address AS city,
 
-                       '領養者' AS role
+                       '領養者' AS role
 
-                FROM users
+                FROM users
 
-                WHERE role <> 'admin'
+                WHERE role <> 'admin'
 
-                ORDER BY name
+                ORDER BY name
 
-            """)
+            """)
 
-            rows = cur.fetchall()
+            rows = cur.fetchall()
 
-        return jsonify(rows)
+        return jsonify(rows)
 
-    finally:
+    finally:
 
-        db.close()
+        db.close()
 
 
 
@@ -2102,33 +2093,33 @@ def get_adopters():
 
 def get_ratings():
 
-    db = get_db()
+    db = get_db()
 
-    try:
+    try:
 
-        with db.cursor() as cur:
+        with db.cursor() as cur:
 
-            cur.execute("""
+            cur.execute("""
 
-                SELECT id, adopter, rater, pet_name AS pet,
+                SELECT id, adopter, rater, pet_name AS pet,
 
-                       responsibility, tracking, environment, care,
+                       responsibility, tracking, environment, care,
 
-                       score, comment, created_at
+                       score, comment, created_at
 
-                FROM adopter_ratings
+                FROM adopter_ratings
 
-                ORDER BY created_at DESC, id DESC
+                ORDER BY created_at DESC, id DESC
 
-            """)
+            """)
 
-            rows = cur.fetchall()
+            rows = cur.fetchall()
 
-        return jsonify([serial(row) for row in rows])
+        return jsonify([serial(row) for row in rows])
 
-    finally:
+    finally:
 
-        db.close()
+        db.close()
 
 
 
@@ -2138,115 +2129,115 @@ def get_ratings():
 
 def create_rating():
 
-    data = body()
+    data = body()
 
-    adopter = str(data.get("adopter") or "").strip()
+    adopter = str(data.get("adopter") or "").strip()
 
-    rater = str(data.get("rater") or "").strip()
+    rater = str(data.get("rater") or "").strip()
 
-    pet = str(data.get("pet_name") or "").strip()
+    pet = str(data.get("pet_name") or "").strip()
 
-    scores = [
+    scores = [
 
-        int(data.get("responsibility") or 0),
+        int(data.get("responsibility") or 0),
 
-        int(data.get("tracking") or 0),
+        int(data.get("tracking") or 0),
 
-        int(data.get("environment") or 0),
+        int(data.get("environment") or 0),
 
-        int(data.get("care") or 0),
+        int(data.get("care") or 0),
 
-    ]
+    ]
 
-    if not adopter or not rater or any(s < 1 or s > 5 for s in scores):
+    if not adopter or not rater or any(s < 1 or s > 5 for s in scores):
 
-        return jsonify({"success": False, "message": "評分資料不完整"}), 400
-
-
-
-    avg = sum(scores) / 4
-
-    db = get_db()
-
-    try:
-
-        with db.cursor() as cur:
-
-            cur.execute("""
-
-                INSERT INTO adopter_ratings
-
-                (adopter,rater,pet_name,responsibility,tracking,
-
-                 environment,care,score,comment)
-
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-
-                ON DUPLICATE KEY UPDATE
-
-                  responsibility=VALUES(responsibility),
-
-                  tracking=VALUES(tracking),
-
-                  environment=VALUES(environment),
-
-                  care=VALUES(care),
-
-                  score=VALUES(score),
-
-                  comment=VALUES(comment),
-
-                  updated_at=CURRENT_TIMESTAMP
-
-            """, (
-
-                adopter, rater, pet, scores[0], scores[1], scores[2],
-
-                scores[3], avg, data.get("comment"),
-
-            ))
-
-        db.commit()
-
-        return jsonify({"success": True, "message": "評分已儲存"}), 201
-
-    finally:
-
-        db.close()
+        return jsonify({"success": False, "message": "評分資料不完整"}), 400
 
 
 
+    avg = sum(scores) / 4
+
+    db = get_db()
+
+    try:
+
+        with db.cursor() as cur:
+
+            cur.execute("""
+
+                INSERT INTO adopter_ratings
+
+                (adopter,rater,pet_name,responsibility,tracking,
+
+                 environment,care,score,comment)
+
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+
+                ON DUPLICATE KEY UPDATE
+
+                  responsibility=VALUES(responsibility),
+
+                  tracking=VALUES(tracking),
+
+                  environment=VALUES(environment),
+
+                  care=VALUES(care),
+
+                  score=VALUES(score),
+
+                  comment=VALUES(comment),
+
+                  updated_at=CURRENT_TIMESTAMP
+
+            """, (
+
+                adopter, rater, pet, scores[0], scores[1], scores[2],
+
+                scores[3], avg, data.get("comment"),
+
+            ))
+
+        db.commit()
+
+        return jsonify({"success": True, "message": "評分已儲存"}), 201
+
+    finally:
+
+        db.close()
 
 
-@app.get("/notifications/\<user>")
+
+
+
+@app.get("/notifications/<user>")
 
 def get_notifications(user: str):
 
-    db = get_db()
+    db = get_db()
 
-    try:
+    try:
 
-        with db.cursor() as cur:
+        with db.cursor() as cur:
 
-            cur.execute("""
+            cur.execute("""
 
-                SELECT id, user_account AS user, title, content, created_at
+                SELECT id, user_account AS user, title, content, created_at
 
-                FROM notifications
+                FROM notifications
 
-                WHERE user_account=%s
+                WHERE user_account=%s
 
-                ORDER BY created_at DESC, id DESC
+                ORDER BY created_at DESC, id DESC
 
-            """, (user,))
+            """, (user,))
 
-            rows = cur.fetchall()
+            rows = cur.fetchall()
 
-        return jsonify([serial(row) for row in rows])
+        return jsonify([serial(row) for row in rows])
 
-    finally:
+    finally:
 
-        db.close()
+        db.close()
 
 
 
@@ -2256,209 +2247,209 @@ def get_notifications(user: str):
 
 def create_notification():
 
-    data = body()
+    data = body()
 
-    user = str(data.get("user") or "").strip()
+    user = str(data.get("user") or "").strip()
 
-    title = str(data.get("title") or "").strip()
+    title = str(data.get("title") or "").strip()
 
-    content = str(data.get("content") or "").strip()
+    content = str(data.get("content") or "").strip()
 
-    if not user or not title:
+    if not user or not title:
 
-        return jsonify({"success": False, "message": "通知資料不完整"}), 400
-
-
-
-    db = get_db()
-
-    try:
-
-        with db.cursor() as cur:
-
-            cur.execute(
-
-                "INSERT INTO notifications (user_account,title,content) VALUES (%s,%s,%s)",
-
-                (user, title, content),
-
-            )
-
-        db.commit()
-
-        return jsonify({"success": True, "message": "通知已建立"}), 201
-
-    finally:
-
-        db.close()
+        return jsonify({"success": False, "message": "通知資料不完整"}), 400
 
 
+
+    db = get_db()
+
+    try:
+
+        with db.cursor() as cur:
+
+            cur.execute(
+
+                "INSERT INTO notifications (user_account,title,content) VALUES (%s,%s,%s)",
+
+                (user, title, content),
+
+            )
+
+        db.commit()
+
+        return jsonify({"success": True, "message": "通知已建立"}), 201
+
+    finally:
+
+        db.close()
 
 
 
 
 
-\# ========================= 收藏 =========================
 
-@app.get("/favorites/user/\<int:user_id>")
+
+# ========================= 收藏 =========================
+
+@app.get("/favorites/user/<int:user_id>")
 
 def get_favorites(user_id: int):
 
-    db = get_db()
+    db = get_db()
 
-    try:
+    try:
 
-        with db.cursor() as cur:
+        with db.cursor() as cur:
 
-            cur.execute("""
+            cur.execute("""
 
-                SELECT
+                SELECT
 
-                    f.id AS favorite_id,
+                    f.id AS favorite_id,
 
-                    f.user_id,
+                    f.user_id,
 
-                    f.chip_number,
+                    f.chip_number,
 
-                    a.name,
+                    a.name,
 
-                    a.species,
+                    a.species,
 
-                    a.gender,
+                    a.gender,
 
-                    a.size,
+                    a.size,
 
-                    a.age_group,
+                    a.age_group,
 
-                    a.personality,
+                    a.personality,
 
-                    a.health_status,
+                    a.health_status,
 
-                    a.is_neutered,
+                    a.is_neutered,
 
-                    a.is_vaccinated,
+                    a.is_vaccinated,
 
-                    a.has_chip,
+                    a.has_chip,
 
-                    a.owner_type,
+                    a.owner_type,
 
-                    a.foster_id,
+                    a.foster_id,
 
-                    a.owner_name,
+                    a.owner_name,
 
-                    a.location,
+                    a.location,
 
-                    a.status,
+                    a.status,
 
-                    a.photo_url,
+                    a.photo_url,
 
-                    a.video_url,
+                    a.video_url,
 
-                    a.media_json
+                    a.media_json
 
-                FROM favorites f
+                FROM favorites f
 
-                LEFT JOIN animals a ON a.chip_number=f.chip_number
+                LEFT JOIN animals a ON a.chip_number=f.chip_number
 
-                WHERE f.user_id=%s
+                WHERE f.user_id=%s
 
-                ORDER BY f.id DESC
+                ORDER BY f.id DESC
 
-            """, (user_id,))
+            """, (user_id,))
 
-            rows = cur.fetchall()
+            rows = cur.fetchall()
 
 
 
-        result = []
+        result = []
 
-        for row in rows:
+        for row in rows:
 
-            photos = []
+            photos = []
 
-            if row\.get("media_json"):
+            if row.get("media_json"):
 
-                try:
+                try:
 
-                    photos = json.loads(row["media_json"])
+                    photos = json.loads(row["media_json"])
 
-                except Exception:
+                except Exception:
 
-                    photos = []
+                    photos = []
 
-            if not photos and row\.get("photo_url"):
+            if not photos and row.get("photo_url"):
 
-                photos = [row["photo_url"]]
+                photos = [row["photo_url"]]
 
 
 
-            result.append({
+            result.append({
 
-                "favorite_id": row\.get("favorite_id"),
+                "favorite_id": row.get("favorite_id"),
 
-                "user_id": row\.get("user_id"),
+                "user_id": row.get("user_id"),
 
-                "id": row\.get("chip_number"),
+                "id": row.get("chip_number"),
 
-                "chip_number": row\.get("chip_number"),
+                "chip_number": row.get("chip_number"),
 
-                "name": row\.get("name") or "未命名",
+                "name": row.get("name") or "未命名",
 
-                "type": "狗" if row\.get("species") in ("犬", "狗") else row\.get("species"),
+                "type": "狗" if row.get("species") in ("犬", "狗") else row.get("species"),
 
-                "species": row\.get("species"),
+                "species": row.get("species"),
 
-                "gender": row\.get("gender") or "未提供",
+                "gender": row.get("gender") or "未提供",
 
-                "size": row\.get("size") or "未提供",
+                "size": row.get("size") or "未提供",
 
-                "age": row\.get("age_group") or "未提供",
+                "age": row.get("age_group") or "未提供",
 
-                "personality": row\.get("personality") or "未提供",
+                "personality": row.get("personality") or "未提供",
 
-                "healthStatus": row\.get("health_status") or "未提供",
+                "healthStatus": row.get("health_status") or "未提供",
 
-                "isNeutered": bool(row\.get("is_neutered")),
+                "isNeutered": bool(row.get("is_neutered")),
 
-                "isVaccinated": bool(row\.get("is_vaccinated")),
+                "isVaccinated": bool(row.get("is_vaccinated")),
 
-                "has_chip": bool(row\.get("has_chip")),
+                "has_chip": bool(row.get("has_chip")),
 
-                "ownerType": row\.get("owner_type") or "未提供",
+                "ownerType": row.get("owner_type") or "未提供",
 
-                "owner_id": row\.get("foster_id"),
+                "owner_id": row.get("foster_id"),
 
-                "owner": row\.get("owner_name") or "系統資料",
+                "owner": row.get("owner_name") or "系統資料",
 
-                "place": row\.get("location") or "未提供",
+                "place": row.get("location") or "未提供",
 
-                "status": {
+                "status": {
 
-                    "available": "待領養",
+                    "available": "待領養",
 
-                    "trial": "試養中",
+                    "trial": "試養中",
 
-                    "adopted": "正式領養",
+                    "adopted": "正式領養",
 
-                    "unavailable": "已下架",
+                    "unavailable": "已下架",
 
-                }.get(row\.get("status"), row\.get("status") or "待領養"),
+                }.get(row.get("status"), row.get("status") or "待領養"),
 
-                "photo": row\.get("photo_url"),
+                "photo": row.get("photo_url"),
 
-                "photos": photos,
+                "photos": photos,
 
-                "video": row\.get("video_url"),
+                "video": row.get("video_url"),
 
-            })
+            })
 
 
 
-        return jsonify(result), 200
+        return jsonify(result), 200
 
-    finally:
+    finally:
 
-        db.close()
+        db.close()
 
 
 
@@ -2468,67 +2459,67 @@ def get_favorites(user_id: int):
 
 def add_favorite():
 
-    data = body()
+    data = body()
 
-    user_id = data.get("user_id")
+    user_id = data.get("user_id")
 
-    chip_number = str(data.get("chip_number") or "").strip()
-
-
-
-    if not user_id or not chip_number:
-
-        return jsonify({"success": False, "message": "缺少 user_id 或 chip_number"}), 400
-
-    if len(chip_number) > 100:
-
-        return jsonify({"success": False, "message": "chip_number 長度異常"}), 400
+    chip_number = str(data.get("chip_number") or "").strip()
 
 
 
-    db = get_db()
+    if not user_id or not chip_number:
 
-    try:
+        return jsonify({"success": False, "message": "缺少 user_id 或 chip_number"}), 400
 
-        with db.cursor() as cur:
+    if len(chip_number) > 100:
 
-            cur.execute(
-
-                "SELECT id FROM favorites WHERE user_id=%s AND chip_number=%s LIMIT 1",
-
-                (user_id, chip_number),
-
-            )
-
-            if cur.fetchone():
-
-                return jsonify({"success": True, "message": "已收藏過這隻寵物"}), 200
+        return jsonify({"success": False, "message": "chip_number 長度異常"}), 400
 
 
 
-            cur.execute(
+    db = get_db()
 
-                "INSERT INTO favorites (user_id, chip_number) VALUES (%s, %s)",
+    try:
 
-                (user_id, chip_number),
+        with db.cursor() as cur:
 
-            )
+            cur.execute(
+
+                "SELECT id FROM favorites WHERE user_id=%s AND chip_number=%s LIMIT 1",
+
+                (user_id, chip_number),
+
+            )
+
+            if cur.fetchone():
+
+                return jsonify({"success": True, "message": "已收藏過這隻寵物"}), 200
 
 
 
-        db.commit()
+            cur.execute(
 
-        return jsonify({"success": True, "message": "收藏成功"}), 201
+                "INSERT INTO favorites (user_id, chip_number) VALUES (%s, %s)",
 
-    except pymysql.MySQLError as exc:
+                (user_id, chip_number),
 
-        db.rollback()
+            )
 
-        return jsonify({"success": False, "message": f"資料庫錯誤：{exc}"}), 500
 
-    finally:
 
-        db.close()
+        db.commit()
+
+        return jsonify({"success": True, "message": "收藏成功"}), 201
+
+    except pymysql.MySQLError as exc:
+
+        db.rollback()
+
+        return jsonify({"success": False, "message": f"資料庫錯誤：{exc}"}), 500
+
+    finally:
+
+        db.close()
 
 
 
@@ -2538,51 +2529,51 @@ def add_favorite():
 
 def remove_favorite():
 
-    if request.method == "OPTIONS":
+    if request.method == "OPTIONS":
 
-        return "", 204
-
-
-
-    user_id = request.args.get("user_id", type=int)
-
-    chip_number = str(request.args.get("chip_number") or "").strip()
+        return "", 204
 
 
 
-    if not user_id or not chip_number:
+    user_id = request.args.get("user_id", type=int)
 
-        return jsonify({"success": False, "message": "缺少 user_id 或 chip_number"}), 400
+    chip_number = str(request.args.get("chip_number") or "").strip()
 
 
 
-    db = get_db()
+    if not user_id or not chip_number:
 
-    try:
+        return jsonify({"success": False, "message": "缺少 user_id 或 chip_number"}), 400
 
-        with db.cursor() as cur:
 
-            cur.execute(
 
-                "DELETE FROM favorites WHERE user_id=%s AND chip_number=%s",
+    db = get_db()
 
-                (user_id, chip_number),
+    try:
 
-            )
+        with db.cursor() as cur:
 
-        db.commit()
+            cur.execute(
 
-        return jsonify({"success": True, "message": "已取消收藏"}), 200
+                "DELETE FROM favorites WHERE user_id=%s AND chip_number=%s",
 
-    except pymysql.MySQLError as exc:
+                (user_id, chip_number),
 
-        db.rollback()
+            )
 
-        return jsonify({"success": False, "message": f"資料庫錯誤：{exc}"}), 500
+        db.commit()
 
-    finally:
+        return jsonify({"success": True, "message": "已取消收藏"}), 200
 
-        db.close()
+    except pymysql.MySQLError as exc:
+
+        db.rollback()
+
+        return jsonify({"success": False, "message": f"資料庫錯誤：{exc}"}), 500
+
+    finally:
+
+        db.close()
 
 
 
@@ -2592,88 +2583,88 @@ def remove_favorite():
 
 def handle_unexpected_error(exc):
 
-    app.logger.exception("Unhandled server error")
+    app.logger.exception("Unhandled server error")
 
 
 
-    error_text = str(exc)
+    error_text = str(exc)
 
-    hint = None
-
-
-
-    if "has_chip" in error_text and (
-
-        "Unknown column" in error_text
-
-        or "1054" in error_text
-
-    ):
-
-        hint = (
-
-            "animals 資料表尚未新增 has_chip 欄位，"
-
-            "請先在 MySQL 執行："
-
-            "ALTER TABLE animals ADD COLUMN has_chip TINYINT(1) NOT NULL DEFAULT 0;"
-
-        )
+    hint = None
 
 
 
-    if "is_vaccinated" in error_text and (
+    if "has_chip" in error_text and (
 
-        "Unknown column" in error_text
+        "Unknown column" in error_text
 
-        or "1054" in error_text
+        or "1054" in error_text
 
-    ):
+    ):
 
-        hint = (
+        hint = (
 
-            "animals 資料表尚未新增 is_vaccinated 欄位，"
+            "animals 資料表尚未新增 has_chip 欄位，"
 
-            "請先在 MySQL 執行："
+            "請先在 MySQL 執行："
 
-            "ALTER TABLE animals ADD COLUMN is_vaccinated TINYINT(1) NOT NULL DEFAULT 0;"
+            "ALTER TABLE animals ADD COLUMN has_chip TINYINT(1) NOT NULL DEFAULT 0;"
 
-        )
-
-
-
-    response = {
-
-        "success": False,
-
-        "message": "伺服器發生錯誤",
-
-        "error": error_text,
-
-    }
+        )
 
 
 
-    if hint:
+    if "is_vaccinated" in error_text and (
 
-        response["hint"] = hint
+        "Unknown column" in error_text
+
+        or "1054" in error_text
+
+    ):
+
+        hint = (
+
+            "animals 資料表尚未新增 is_vaccinated 欄位，"
+
+            "請先在 MySQL 執行："
+
+            "ALTER TABLE animals ADD COLUMN is_vaccinated TINYINT(1) NOT NULL DEFAULT 0;"
+
+        )
 
 
 
-    return jsonify(response), 500
+    response = {
+
+        "success": False,
+
+        "message": "伺服器發生錯誤",
+
+        "error": error_text,
+
+    }
+
+
+
+    if hint:
+
+        response["hint"] = hint
+
+
+
+    return jsonify(response), 500
 
 
 
 
 
-if \_\_name\_\_ == "\_\_main\_\_":
+if __name__ == "__main__":
 
-    app.run(
+    app.run(
 
-        host="0.0.0.0",
+        host="0.0.0.0",
 
-        port=int(os.environ.get("PORT", 5000)),
+        port=int(os.environ.get("PORT", 5000)),
 
-        debug=False,
+        debug=False,
 
-    )
+    )
