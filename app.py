@@ -186,7 +186,7 @@ def verification_code_hash(code: str) -> str:
 
 def is_valid_gmail(email: str) -> bool:
 
-    return bool(re.fullmatch(r"[^@\s]+@gmai&#x6C;**.**&#x63;om", email.lower()))
+    return bool(re.fullmatch(r"[^@\s]+@gmail\.com", email.lower()))
 
 
 
