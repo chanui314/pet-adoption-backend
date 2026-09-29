@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import os
 
 import json
@@ -27,6 +26,7 @@ from typing import Any
 
 
 import pymysql
+import resend
 
 from flask import Flask, jsonify, request, send_from_directory
 
@@ -39,12 +39,15 @@ from werkzeug.utils import secure_filename
 app = Flask(__name__)
 
 CORS(
+
     app,
+
     resources={r"/*": {"origins": "*"}},
-    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+
     allow_headers=["Content-Type", "Authorization"],
-    supports_credentials=False,
-    max_age=86400,
+
 )
 
 
@@ -183,7 +186,7 @@ def verification_code_hash(code: str) -> str:
 
 def is_valid_gmail(email: str) -> bool:
 
-    return bool(re.fullmatch(r"[^@\s]+@gmail\.com", email.lower()))
+    return bool(re.fullmatch(r"[^@\s]+@gmai&#x6C;**.**&#x63;om", email.lower()))
 
 
 
@@ -242,104 +245,53 @@ def ensure_email_verification_table() -> None:
 
 
 def send_verification_email(email: str, code: str, purpose: str) -> None:
+    """使用 Resend HTTPS API 寄送註冊/重設密碼驗證碼。"""
+    api_key = str(os.environ.get("RESEND_API_KEY") or "").strip()
 
-    smtp_email = str(os.environ.get("SMTP_EMAIL") or "").strip()
+    if not api_key:
+        raise RuntimeError("Railway 尚未設定 RESEND_API_KEY，無法寄送驗證碼")
 
-    smtp_password = str(os.environ.get("SMTP_PASSWORD") or "").replace(" ", "").strip()
-
-
-
-    if not smtp_email or not smtp_password:
-
-        raise RuntimeError(
-
-            "Railway 尚未設定 SMTP_EMAIL / SMTP_PASSWORD，無法寄送 Gmail 驗證碼"
-
-        )
-
-
+    from_email = str(
+        os.environ.get("RESEND_FROM_EMAIL")
+        or "Pet Adoption <onboarding@resend.dev>"
+    ).strip()
 
     if purpose == "register":
-
         subject = "寵物領養系統－註冊驗證碼"
-
         action_text = "完成帳號註冊"
-
     else:
-
         subject = "寵物領養系統－重設密碼驗證碼"
-
         action_text = "重設登入密碼"
 
+    resend.api_key = api_key
 
+    html = f"""
+    <html>
+      <body style="font-family:Arial,sans-serif;background:#f7f3ea;padding:24px;">
+        <div style="max-width:520px;margin:auto;background:#ffffff;padding:28px;border-radius:16px;">
+          <h2 style="color:#5F8D7A;">寵物領養系統</h2>
+          <p>您好：</p>
+          <p>您正在進行「{action_text}」。</p>
+          <p>您的 6 位數驗證碼是：</p>
+          <div style="font-size:34px;font-weight:bold;letter-spacing:8px;color:#5F8D7A;margin:24px 0;">
+            {code}
+          </div>
+          <p>驗證碼 <b>10 分鐘</b>內有效。</p>
+          <p style="color:#777;">若不是您本人操作，請忽略此郵件。</p>
+        </div>
+      </body>
+    </html>
+    """
 
-    msg = EmailMessage()
-
-    msg["Subject"] = subject
-
-    msg["From"] = smtp_email
-
-    msg["To"] = email
-
-    msg.set_content(
-
-        f"您好：\n\n您正在進行「{action_text}」。\n"
-
-        f"您的 6 位數驗證碼是：{code}\n\n"
-
-        "驗證碼 10 分鐘內有效。若不是您本人操作，請忽略此郵件。"
-
-    )
-
-    msg.add_alternative(
-
-        f"""
-
-        <html>
-
-          <body style="font-family:Arial,sans-serif;background:#f7f3ea;padding:24px;">
-
-            <div style="max-width:520px;margin:auto;background:#ffffff;padding:28px;border-radius:16px;">
-
-              <h2 style="color:#5F8D7A;">寵物領養系統</h2>
-
-              <p>您好：</p>
-
-              <p>您正在進行「{action_text}」。</p>
-
-              <p>您的 6 位數驗證碼是：</p>
-
-              <div style="font-size:34px;font-weight:bold;letter-spacing:8px;color:#5F8D7A;margin:24px 0;">
-
-                {code}
-
-              </div>
-
-              <p>驗證碼 <b>10 分鐘</b>內有效。</p>
-
-              <p style="color:#777;">若不是您本人操作，請忽略此郵件。</p>
-
-            </div>
-
-          </body>
-
-        </html>
-
-        """,
-
-        subtype="html",
-
-    )
-
-
-
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as server:
-
-        server.login(smtp_email, smtp_password)
-
-        server.send_message(msg)
-
-
+    try:
+        resend.Emails.send({
+            "from": from_email,
+            "to": [email],
+            "subject": subject,
+            "html": html,
+        })
+    except Exception as exc:
+        raise RuntimeError(f"Resend 寄信失敗：{exc}") from exc
 
 
 
@@ -812,30 +764,39 @@ def serial(row: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.get("/")
+
 def index():
+
     return jsonify({
+
         "success": True,
+
         "message": "Pet Adoption API is running",
+
     })
 
 
-# ========================= SMTP 環境變數檢查 =========================
-@app.get("/debug/smtp")
-def debug_smtp():
-    smtp_email = str(os.environ.get("SMTP_EMAIL") or "").strip()
-    smtp_password = str(os.environ.get("SMTP_PASSWORD") or "").strip()
 
+
+
+# ========================= SMTP 環境變數檢查 =========================
+@app.get("/debug/resend")
+def debug_resend():
+    api_key = str(os.environ.get("RESEND_API_KEY") or "").strip()
+    from_email = str(os.environ.get("RESEND_FROM_EMAIL") or "").strip()
     return jsonify({
         "success": True,
-        "SMTP_EMAIL_set": bool(smtp_email),
-        "SMTP_PASSWORD_set": bool(smtp_password),
-        "SMTP_EMAIL_length": len(smtp_email),
-        "SMTP_PASSWORD_length": len(smtp_password),
+        "RESEND_API_KEY_set": bool(api_key),
+        "RESEND_API_KEY_length": len(api_key),
+        "RESEND_FROM_EMAIL_set": bool(from_email),
+        "sender": from_email if from_email else "Pet Adoption <onboarding@resend.dev>",
     }), 200
 
 
 @app.get("/health")
+
 def health():
+
     """
 
     Railway 健康檢查。
