@@ -185,11 +185,8 @@ def verification_code_hash(code: str) -> str:
 
 
 def is_valid_gmail(email: str) -> bool:
-
-    return bool(re.fullmatch(r"[^@\s]+@gmail\.com", email.lower()))
-
-
-
+    # 暫時允許所有格式正常的 Email，例如 Gmail、學校信箱等。
+    return bool(re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email.lower()))
 
 
 def ensure_email_verification_table() -> None:
@@ -347,7 +344,7 @@ def send_email_code():
 
             "success": False,
 
-            "message": "請輸入有效的 Gmail，例如 example@gmail.com",
+            "message": "請輸入有效的 Email，例如 example@gmail.com",
 
         }), 400
 
@@ -535,7 +532,7 @@ def verify_email_code():
 
     if not is_valid_gmail(email):
 
-        return jsonify({"success": False, "message": "請輸入有效的 Gmail"}), 400
+        return jsonify({"success": False, "message": "請輸入有效的 Email"}), 400
 
 
 
@@ -629,7 +626,7 @@ def reset_password():
 
     if not is_valid_gmail(email):
 
-        return jsonify({"success": False, "message": "請輸入有效的 Gmail"}), 400
+        return jsonify({"success": False, "message": "請輸入有效的 Email"}), 400
 
     if not re.fullmatch(r"\d{6}", code):
 
@@ -865,7 +862,7 @@ def register():
 
     if not email or not password:
 
-        return jsonify({"success": False, "message": "Gmail、密碼不可空白"}), 400
+        return jsonify({"success": False, "message": "Email、密碼不可空白"}), 400
 
     if not is_valid_gmail(email):
 
@@ -873,7 +870,7 @@ def register():
 
             "success": False,
 
-            "message": "帳號請使用 Gmail，例如 example@gmail.com",
+            "message": "請輸入有效的 Email，例如 example@gmail.com",
 
         }), 400
 
