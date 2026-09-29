@@ -812,25 +812,30 @@ def serial(row: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.get("/")
-
 def index():
-
     return jsonify({
-
         "success": True,
-
         "message": "Pet Adoption API is running",
-
     })
 
 
+# ========================= SMTP 環境變數檢查 =========================
+@app.get("/debug/smtp")
+def debug_smtp():
+    smtp_email = str(os.environ.get("SMTP_EMAIL") or "").strip()
+    smtp_password = str(os.environ.get("SMTP_PASSWORD") or "").strip()
 
+    return jsonify({
+        "success": True,
+        "SMTP_EMAIL_set": bool(smtp_email),
+        "SMTP_PASSWORD_set": bool(smtp_password),
+        "SMTP_EMAIL_length": len(smtp_email),
+        "SMTP_PASSWORD_length": len(smtp_password),
+    }), 200
 
 
 @app.get("/health")
-
 def health():
-
     """
 
     Railway 健康檢查。
