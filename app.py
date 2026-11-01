@@ -3,14 +3,29 @@ from __future__ import annotations
 import os
 import json
 import hashlib
+import uuid
 from datetime import date, datetime
 from typing import Any
 
 import pymysql
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
+from werkzeug.utils import secure_filename
+from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_cors import CORS
 
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+# 上傳目錄：Railway 請將 UPLOAD_DIR 指向持久化 Volume 的實際掛載路徑。
+# 範例：Volume 掛載 /data/uploads，則設定 UPLOAD_DIR=/data/uploads。
+# 若未設定，仍使用 app.py 同層的 uploads 目錄（適用本機開發）。
+UPLOAD_DIR = os.path.abspath(os.path.expanduser(os.environ.get(
+    'UPLOAD_DIR', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
+)))
+app.config['MAX_CONTENT_LENGTH'] = 55 * 1024 * 1024
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+app.logger.info('Animal media directory: %s', UPLOAD_DIR)
+if os.environ.get('RAILWAY_ENVIRONMENT') and not os.environ.get('RAILWAY_VOLUME_MOUNT_PATH'):
+    app.logger.warning('Railway Volume not detected: uploaded files may disappear after redeploy.')
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 
@@ -53,6 +68,58 @@ def serial(row: dict[str, Any]) -> dict[str, Any]:
         if isinstance(value, (datetime, date)):
             result[key] = value.isoformat()
     return result
+
+
+@app.post('/uploads')
+def upload_animal_media():
+    kind = request.form.get('kind', '')
+    upload = request.files.get('file')
+    if kind not in {'photo', 'video'} or not upload or not upload.filename:
+        return jsonify({'success': False, 'message': '缺少檔案或檔案類型不正確'}), 400
+    extension = os.path.splitext(secure_filename(upload.filename))[1].lower()
+    allowed = {'.jpg', '.jpeg', '.png', '.webp'} if kind == 'photo' else {'.mp4'}
+    if extension not in allowed:
+        return jsonify({'success': False, 'message': '只接受 JPG/PNG/WebP 照片或 MP4 影片'}), 400
+    content = upload.read()
+    limit = 8 * 1024 * 1024 if kind == 'photo' else 50 * 1024 * 1024
+    if not content or len(content) > limit:
+        return jsonify({'success': False, 'message': '檔案為空或超過大小限制'}), 413
+    # 簡單檔頭驗證，避免直接以任意副檔名上傳其他內容
+    valid = (
+        (extension in ('.jpg', '.jpeg') and content.startswith(b'\xff\xd8\xff')) or
+        (extension == '.png' and content.startswith(b'\x89PNG\r\n\x1a\n')) or
+        (extension == '.webp' and content.startswith(b'RIFF') and content[8:12] == b'WEBP') or
+        (extension == '.mp4' and len(content) >= 12 and content[4:8] == b'ftyp')
+    )
+    if not valid:
+        return jsonify({'success': False, 'message': '檔案內容與格式不符'}), 400
+    filename = uuid.uuid4().hex + extension
+    file_path = os.path.join(UPLOAD_DIR, filename)
+    try:
+        # 檔案只寫入設定的 UPLOAD_DIR；讀取 API 也使用同一目錄。
+        with open(file_path, 'xb') as target:
+            target.write(content)
+    except OSError:
+        app.logger.exception('Failed to save uploaded media in %s', UPLOAD_DIR)
+        return jsonify({'success': False, 'message': '伺服器無法儲存檔案，請檢查 UPLOAD_DIR 與 Railway Volume 權限'}), 500
+
+    app.logger.info('Uploaded media: %s (%d bytes) in %s', filename, len(content), UPLOAD_DIR)
+    public_base = os.environ.get('PUBLIC_API_BASE_URL', request.url_root.rstrip('/')).rstrip('/')
+    return jsonify({'success': True, 'url': f'{public_base}/uploads/{filename}'}), 201
+
+
+@app.get('/uploads/<filename>')
+def get_uploaded_media(filename):
+    # send_from_directory 本身會安全地處理檔案路徑，保留舊版檔名相容性。
+    if not os.path.isfile(os.path.join(UPLOAD_DIR, filename)):
+        app.logger.warning('Media file not found: %s (UPLOAD_DIR=%s)', filename, UPLOAD_DIR)
+        return jsonify({'success': False, 'message': '找不到媒體檔案；請檢查 Railway Volume 或重新上傳'}), 404
+    return send_from_directory(UPLOAD_DIR, filename)
+
+
+@app.errorhandler(413)
+def uploaded_file_too_large(_error):
+    return jsonify({'success': False, 'message': '檔案超過伺服器允許的大小限制（55 MB）'}), 413
 
 
 @app.get("/")
@@ -163,6 +230,8 @@ def serialize_animals(rows):
         result.append({
             "id": a.get("chip_number"),
             "chip_number": a.get("chip_number"),
+            "actual_chip_number": a.get("chip_number") if a.get("chip_status", "known") == "known" else None,
+            "chip_status": a.get("chip_status", "known"),
             "name": a.get("name") or a.get("chip_number"),
             "type": "狗" if a.get("species") in ("犬", "狗") else a.get("species"),
             "species": a.get("species"),
@@ -207,6 +276,8 @@ def animals():
             result.append({
                 "id": a.get("chip_number"),
                 "chip_number": a.get("chip_number"),
+                "actual_chip_number": a.get("chip_number") if a.get("chip_status", "known") == "known" else None,
+                "chip_status": a.get("chip_status", "known"),
                 "name": a.get("name") or a.get("chip_number"),
                 "type": "狗" if a.get("species") in ("犬", "狗") else a.get("species"),
                 "species": a.get("species"),
@@ -299,8 +370,13 @@ def create_animal():
     data = body()
     chip = str(data.get("chip_number") or "").strip()
     name = str(data.get("name") or "").strip()
-    if not chip or not name:
-        return jsonify({"success": False, "message": "晶片號碼與名稱不可空白"}), 400
+    chip_status = str(data.get("chip_status") or "known")
+    if chip_status not in {"known", "forgot", "none"}:
+        return jsonify({"success": False, "message": "晶片狀態不正確"}), 400
+    if not name or (chip_status == "known" and not chip):
+        return jsonify({"success": False, "message": "請填寫寵物名稱及必要的晶片號碼"}), 400
+    if chip_status != "known":
+        chip = "TEMP-" + uuid.uuid4().hex.upper()
 
     db = get_db()
     try:
@@ -310,9 +386,9 @@ def create_animal():
                 (chip_number,name,species,gender,breed,coat_color,size,
                  surrender_reason,owner_name,shelter_name,announcement_date,
                  age_group,personality,health_status,is_neutered,owner_type,
-                 foster_id,description,status,location,photo_url)
+                 foster_id,description,status,location,photo_url,chip_status,media_json,video_url)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,CURDATE(),
-                        %s,%s,%s,%s,%s,%s,%s,'available',%s,%s)
+                        %s,%s,%s,%s,%s,%s,%s,'available',%s,%s,%s,%s,%s)
             """, (
                 chip, name, data.get("species"), data.get("gender"),
                 data.get("breed"), data.get("coat_color"), data.get("size"),
@@ -320,16 +396,12 @@ def create_animal():
                 data.get("shelter_name"), data.get("age"), data.get("personality"),
                 data.get("healthStatus"), data.get("isNeutered"),
                 data.get("ownerType"), data.get("foster_id"), data.get("desc"),
-                data.get("place"), data.get("photo"),
+                data.get("place"), data.get("photo"), chip_status,
+                json.dumps(data.get('photos') or [], ensure_ascii=False),
+                data.get('video_url') or None,
             ))
-            video_url = str(data.get('video_url') or '').strip()
-            if video_url:
-                cur.execute("""SELECT COUNT(*) AS n FROM information_schema.COLUMNS
-                  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='animals' AND COLUMN_NAME='video_url'""")
-                if cur.fetchone()['n']:
-                    cur.execute('UPDATE animals SET video_url=%s WHERE chip_number=%s', (video_url, chip))
         db.commit()
-        return jsonify({"success": True, "message": "寵物發布成功"}), 201
+        return jsonify({"success": True, "message": "寵物發布成功", "animal_id": chip}), 201
     except pymysql.MySQLError as exc:
         db.rollback()
         return jsonify({"success": False, "message": f"資料庫錯誤：{exc}"}), 500
