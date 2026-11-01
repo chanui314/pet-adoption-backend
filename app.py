@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import hashlib
 from datetime import date, datetime
 from typing import Any
@@ -178,6 +179,8 @@ def serialize_animals(rows):
             "desc": a.get("description") or a.get("surrender_reason") or "",
             "status": a.get("status"),
             "photo": a.get("photo_url"),
+            "photos": (json.loads(a["media_json"]) if a.get("media_json") else ([a.get("photo_url")] if a.get("photo_url") else [])),
+            "video_url": a.get("video_url"),
             "breed": a.get("breed"),
             "coatColor": a.get("coat_color"),
             "shelterName": a.get("shelter_name"),
@@ -220,6 +223,8 @@ def animals():
                 "desc": a.get("description") or a.get("surrender_reason") or "",
                 "status": "待領養",
                 "photo": a.get("photo_url"),
+            "photos": (json.loads(a["media_json"]) if a.get("media_json") else ([a.get("photo_url")] if a.get("photo_url") else [])),
+            "video_url": a.get("video_url"),
                 "breed": a.get("breed"),
                 "coatColor": a.get("coat_color"),
                 "shelterName": a.get("shelter_name"),
@@ -317,6 +322,12 @@ def create_animal():
                 data.get("ownerType"), data.get("foster_id"), data.get("desc"),
                 data.get("place"), data.get("photo"),
             ))
+            video_url = str(data.get('video_url') or '').strip()
+            if video_url:
+                cur.execute("""SELECT COUNT(*) AS n FROM information_schema.COLUMNS
+                  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='animals' AND COLUMN_NAME='video_url'""")
+                if cur.fetchone()['n']:
+                    cur.execute('UPDATE animals SET video_url=%s WHERE chip_number=%s', (video_url, chip))
         db.commit()
         return jsonify({"success": True, "message": "寵物發布成功"}), 201
     except pymysql.MySQLError as exc:
@@ -586,6 +597,58 @@ def create_notification():
     finally:
         db.close()
 
+
+
+@app.get('/favorites/user/<int:user_id>')
+def favorite_list(user_id):
+    db = get_db()
+    try:
+        with db.cursor() as cur:
+            cur.execute('SELECT user_id, chip_number FROM favorites WHERE user_id=%s', (user_id,))
+            return jsonify(cur.fetchall())
+    finally:
+        db.close()
+
+@app.post('/favorites')
+def favorite_add():
+    data = body()
+    try:
+        uid = int(data.get('user_id'))
+    except (ValueError, TypeError):
+        return jsonify({'success': False, 'message': '缺少使用者編號'}), 400
+    chip = str(data.get('chip_number') or '').strip()
+    if not chip:
+        return jsonify({'success': False, 'message': '缺少動物晶片號碼'}), 400
+    db = get_db()
+    try:
+        with db.cursor() as cur:
+            cur.execute('SELECT 1 FROM favorites WHERE user_id=%s AND chip_number=%s LIMIT 1', (uid, chip))
+            if not cur.fetchone():
+                cur.execute('INSERT INTO favorites (user_id, chip_number) VALUES (%s, %s)', (uid, chip))
+        db.commit()
+        return jsonify({'success': True})
+    except pymysql.MySQLError as e:
+        db.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        db.close()
+
+@app.delete('/favorites')
+def favorite_remove():
+    data = body()
+    try:
+        uid = int(data.get('user_id'))
+    except (ValueError, TypeError):
+        return jsonify({'success': False, 'message': '缺少使用者編號'}), 400
+    chip = str(data.get('chip_number') or '').strip()
+    db = get_db()
+    try:
+        with db.cursor() as cur:
+            cur.execute('DELETE FROM favorites WHERE user_id=%s AND chip_number=%s', (uid, chip))
+        db.commit()
+        return jsonify({'success': True})
+    finally:
+        db.close()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
