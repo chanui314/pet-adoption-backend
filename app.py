@@ -15,15 +15,12 @@ from flask_cors import CORS
 
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
-# 上傳目錄：Railway 請將 UPLOAD_DIR 指向持久化 Volume 的實際掛載路徑。
-# 範例：Volume 掛載 /data/uploads，則設定 UPLOAD_DIR=/data/uploads。
-# 若未設定，仍使用 app.py 同層的 uploads 目錄（適用本機開發）。
-UPLOAD_DIR = os.path.abspath(os.path.expanduser(os.environ.get(
-    'UPLOAD_DIR', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
+UPLOAD_FOLDER = os.path.abspath(os.path.expanduser(os.environ.get(
+    'UPLOAD_FOLDER', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
 )))
 app.config['MAX_CONTENT_LENGTH'] = 55 * 1024 * 1024
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-app.logger.info('Animal media directory: %s', UPLOAD_DIR)
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.logger.info('Animal media directory: %s', UPLOAD_FOLDER)
 if os.environ.get('RAILWAY_ENVIRONMENT') and not os.environ.get('RAILWAY_VOLUME_MOUNT_PATH'):
     app.logger.warning('Railway Volume not detected: uploaded files may disappear after redeploy.')
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -94,16 +91,16 @@ def upload_animal_media():
     if not valid:
         return jsonify({'success': False, 'message': '檔案內容與格式不符'}), 400
     filename = uuid.uuid4().hex + extension
-    file_path = os.path.join(UPLOAD_DIR, filename)
+    file_path = os.path.join(UPLOAD_FOLDER, filename)
     try:
-        # 檔案只寫入設定的 UPLOAD_DIR；讀取 API 也使用同一目錄。
+        # 檔案只寫入設定的 UPLOAD_FOLDER；讀取 API 也使用同一目錄。
         with open(file_path, 'xb') as target:
             target.write(content)
     except OSError:
-        app.logger.exception('Failed to save uploaded media in %s', UPLOAD_DIR)
-        return jsonify({'success': False, 'message': '伺服器無法儲存檔案，請檢查 UPLOAD_DIR 與 Railway Volume 權限'}), 500
+        app.logger.exception('Failed to save uploaded media in %s', UPLOAD_FOLDER)
+        return jsonify({'success': False, 'message': '伺服器無法儲存檔案，請檢查 UPLOAD_FOLDER 與 Railway Volume 權限'}), 500
 
-    app.logger.info('Uploaded media: %s (%d bytes) in %s', filename, len(content), UPLOAD_DIR)
+    app.logger.info('Uploaded media: %s (%d bytes) in %s', filename, len(content), UPLOAD_FOLDER)
     public_base = os.environ.get('PUBLIC_API_BASE_URL', request.url_root.rstrip('/')).rstrip('/')
     return jsonify({'success': True, 'url': f'{public_base}/uploads/{filename}'}), 201
 
@@ -111,10 +108,10 @@ def upload_animal_media():
 @app.get('/uploads/<filename>')
 def get_uploaded_media(filename):
     # send_from_directory 本身會安全地處理檔案路徑，保留舊版檔名相容性。
-    if not os.path.isfile(os.path.join(UPLOAD_DIR, filename)):
-        app.logger.warning('Media file not found: %s (UPLOAD_DIR=%s)', filename, UPLOAD_DIR)
+    if not os.path.isfile(os.path.join(UPLOAD_FOLDER, filename)):
+        app.logger.warning('Media file not found: %s (UPLOAD_FOLDER=%s)', filename, UPLOAD_FOLDER)
         return jsonify({'success': False, 'message': '找不到媒體檔案；請檢查 Railway Volume 或重新上傳'}), 404
-    return send_from_directory(UPLOAD_DIR, filename)
+    return send_from_directory(UPLOAD_FOLDER, filename)
 
 
 @app.errorhandler(413)
