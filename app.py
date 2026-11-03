@@ -15,12 +15,15 @@ from flask_cors import CORS
 
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
-UPLOAD_FOLDER = os.path.abspath(os.path.expanduser(os.environ.get(
+# 上傳目錄：沿用 Railway 現有的 UPLOAD_FOLDER 環境變數。
+# 範例：Railway Volume 掛載 /app/uploads，則設定 UPLOAD_FOLDER=/app/uploads。
+# 若未設定，仍使用 app.py 同層的 uploads 目錄（適用本機開發）。
+UPLOAD_DIR = os.path.abspath(os.path.expanduser(os.environ.get(
     'UPLOAD_FOLDER', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
 )))
 app.config['MAX_CONTENT_LENGTH'] = 55 * 1024 * 1024
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-app.logger.info('Animal media directory: %s', UPLOAD_FOLDER)
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+app.logger.info('Animal media directory: %s', UPLOAD_DIR)
 if os.environ.get('RAILWAY_ENVIRONMENT') and not os.environ.get('RAILWAY_VOLUME_MOUNT_PATH'):
     app.logger.warning('Railway Volume not detected: uploaded files may disappear after redeploy.')
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -91,16 +94,16 @@ def upload_animal_media():
     if not valid:
         return jsonify({'success': False, 'message': '檔案內容與格式不符'}), 400
     filename = uuid.uuid4().hex + extension
-    file_path = os.path.join(UPLOAD_FOLDER, filename)
+    file_path = os.path.join(UPLOAD_DIR, filename)
     try:
-        # 檔案只寫入設定的 UPLOAD_FOLDER；讀取 API 也使用同一目錄。
+        # 檔案只寫入設定的 UPLOAD_DIR；讀取 API 也使用同一目錄。
         with open(file_path, 'xb') as target:
             target.write(content)
     except OSError:
-        app.logger.exception('Failed to save uploaded media in %s', UPLOAD_FOLDER)
-        return jsonify({'success': False, 'message': '伺服器無法儲存檔案，請檢查 UPLOAD_FOLDER 與 Railway Volume 權限'}), 500
+        app.logger.exception('Failed to save uploaded media in %s', UPLOAD_DIR)
+        return jsonify({'success': False, 'message': '伺服器無法儲存檔案，請檢查 UPLOAD_DIR 與 Railway Volume 權限'}), 500
 
-    app.logger.info('Uploaded media: %s (%d bytes) in %s', filename, len(content), UPLOAD_FOLDER)
+    app.logger.info('Uploaded media: %s (%d bytes) in %s', filename, len(content), UPLOAD_DIR)
     public_base = os.environ.get('PUBLIC_API_BASE_URL', request.url_root.rstrip('/')).rstrip('/')
     return jsonify({'success': True, 'url': f'{public_base}/uploads/{filename}'}), 201
 
@@ -108,10 +111,10 @@ def upload_animal_media():
 @app.get('/uploads/<filename>')
 def get_uploaded_media(filename):
     # send_from_directory 本身會安全地處理檔案路徑，保留舊版檔名相容性。
-    if not os.path.isfile(os.path.join(UPLOAD_FOLDER, filename)):
-        app.logger.warning('Media file not found: %s (UPLOAD_FOLDER=%s)', filename, UPLOAD_FOLDER)
+    if not os.path.isfile(os.path.join(UPLOAD_DIR, filename)):
+        app.logger.warning('Media file not found: %s (UPLOAD_DIR=%s)', filename, UPLOAD_DIR)
         return jsonify({'success': False, 'message': '找不到媒體檔案；請檢查 Railway Volume 或重新上傳'}), 404
-    return send_from_directory(UPLOAD_FOLDER, filename)
+    return send_from_directory(UPLOAD_DIR, filename)
 
 
 @app.errorhandler(413)
@@ -414,6 +417,12 @@ def create_application():
     if not user_id or not chip:
         return jsonify({"success": False, "message": "缺少 user_id 或 chip_number"}), 400
 
+    photo_url = str(data.get('environment_photo_url') or '').strip()
+    if not photo_url:
+        return jsonify({"success": False, "message": "請上傳飼養環境照片"}), 400
+    if len(photo_url) > 1000 or not photo_url.startswith(('https://', 'http://')):
+        return jsonify({"success": False, "message": "飼養環境照片網址格式不正確"}), 400
+
     db = get_db()
     try:
         with db.cursor() as cur:
@@ -426,12 +435,12 @@ def create_application():
             cur.execute("""
                 INSERT INTO applications
                 (user_id,chip_number,status,adopter_name,phone,
-                 living_environment,pet_experience,message)
-                VALUES (%s,%s,'pending',%s,%s,%s,%s,%s)
+                 living_environment,pet_experience,message,environment_photo_url)
+                VALUES (%s,%s,'pending',%s,%s,%s,%s,%s,%s)
             """, (
                 user_id, chip, data.get("adopter_name"), data.get("phone"),
                 data.get("living_environment"), data.get("pet_experience"),
-                data.get("message"),
+                data.get("message"), photo_url,
             ))
             app_id = cur.lastrowid
         db.commit()
@@ -449,6 +458,7 @@ def application_query(where: str, value: int):
         with db.cursor() as cur:
             cur.execute(f"""
                 SELECT ap.*, a.name AS pet, a.species,
+                       adopter.email AS adopter_email,
                        COALESCE(adopter.name, ap.adopter_name, '未提供') AS user,
                        COALESCE(owner.name, a.owner_name, a.shelter_name, '系統資料') AS owner
                 FROM applications ap
