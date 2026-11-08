@@ -327,6 +327,95 @@ def serialize_animals(rows):
     return result
 
 
+
+@app.put('/users/me')
+def update_my_profile():
+    """只允許憑有效登入憑證更新自己的個人資料與媒合偏好。"""
+    signer = _session_signer()
+    if signer is None:
+        return jsonify({'success': False, 'message': '伺服器登入設定不完整'}), 503
+    authorization = request.headers.get('Authorization', '')
+    if not authorization.startswith('Bearer '):
+        return jsonify({'success': False, 'message': '請重新登入後再修改資料'}), 401
+    try:
+        payload = signer.loads(authorization[7:].strip(), max_age=SESSION_MAX_AGE_SECONDS)
+        user_id = int(payload['uid'])
+    except (BadSignature, SignatureExpired, ValueError, TypeError, KeyError):
+        return jsonify({'success': False, 'message': '登入憑證已失效，請重新登入'}), 401
+
+    data = body()
+    fields = {
+        'email': ('email', 150),
+        'phone': ('phone', 30),
+        'city': ('address', 100),
+        'housing': ('living_environment', 100),
+        'experience': ('pet_experience', 100),
+        'dailyTime': ('daily_time', 30),
+        'prefType': ('pref_type', 20),
+        'prefAge': ('pref_age', 30),
+        'prefGender': ('pref_gender', 10),
+        'familyChild': ('family_child', 20),
+        'personalityPref': ('personality_pref', 50),
+        'housingSize': ('housing_size', 30),
+        'travelFrequency': ('travel_frequency', 30),
+        'livingStability': ('living_stability', 30),
+        'monthlyBudget': ('monthly_budget', 30),
+        'childAge': ('child_age', 20),
+        'hasOtherPets': ('has_other_pets', 30),
+        'allergyTolerance': ('allergy_tolerance', 30),
+    }
+    boolean_fields = {
+        'canKeepPet': 'can_keep_pet',
+        'canCrossCity': 'can_cross_city',
+        'canTakeSpecial': 'can_take_special',
+        'onlyNeutered': 'only_neutered',
+    }
+    values = {}
+    for key, (column, max_length) in fields.items():
+        if key in data:
+            if not isinstance(data[key], str):
+                return jsonify({'success': False, 'message': f'{key} 格式不正確'}), 400
+            value = data[key].strip()
+            if len(value) > max_length:
+                return jsonify({'success': False, 'message': f'{key} 字數不可超過 {max_length}'}), 400
+            values[column] = value
+    for key, column in boolean_fields.items():
+        if key in data:
+            if not isinstance(data[key], bool):
+                return jsonify({'success': False, 'message': f'{key} 必須是布林值'}), 400
+            values[column] = int(data[key])
+    if not values:
+        return jsonify({'success': False, 'message': '沒有可修改的欄位'}), 400
+    if 'email' in values and ('@' not in values['email'] or not values['email']):
+        return jsonify({'success': False, 'message': 'Email 格式不正確'}), 400
+
+    db = get_db()
+    try:
+        with db.cursor() as cur:
+            cur.execute('SELECT id FROM users WHERE id=%s FOR UPDATE', (user_id,))
+            if not cur.fetchone():
+                return jsonify({'success': False, 'message': '使用者不存在'}), 404
+            if 'email' in values:
+                cur.execute('SELECT id FROM users WHERE email=%s AND id<>%s LIMIT 1',
+                            (values['email'], user_id))
+                if cur.fetchone():
+                    return jsonify({'success': False, 'message': '這個 Email 已被其他帳號使用'}), 409
+            columns = list(values.keys())
+            assignments = ', '.join(f'`{column}`=%s' for column in columns)
+            cur.execute(f'UPDATE users SET {assignments} WHERE id=%s',
+                        [values[col] for col in columns] + [user_id])
+            cur.execute('SELECT * FROM users WHERE id=%s', (user_id,))
+            updated = cur.fetchone()
+        db.commit()
+        return jsonify({'success': True, 'message': '個人資料已更新',
+                        'user': _public_login_user(updated)})
+    except pymysql.MySQLError:
+        db.rollback()
+        app.logger.exception('Failed to update profile for user id=%s', user_id)
+        return jsonify({'success': False, 'message': '資料庫更新失敗，請稍後重試'}), 500
+    finally:
+        db.close()
+
 @app.get("/animals")
 def animals():
     db = get_db()
