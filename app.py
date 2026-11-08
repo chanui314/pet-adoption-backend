@@ -423,15 +423,40 @@ def create_application():
     if len(photo_url) > 1000 or not photo_url.startswith(('https://', 'http://')):
         return jsonify({"success": False, "message": "飼養環境照片網址格式不正確"}), 400
 
+    try:
+        user_id = int(user_id)
+        if user_id <= 0:
+            raise ValueError()
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "message": "領養者編號不正確"}), 400
+
     db = get_db()
     try:
         with db.cursor() as cur:
+            # 鎖定此動物的資料列，避免同時提交兩份申請時繞過重複檢查。
             cur.execute(
-                "SELECT id FROM applications WHERE user_id=%s AND chip_number=%s",
+                "SELECT foster_id, status FROM animals WHERE chip_number=%s FOR UPDATE",
+                (chip,),
+            )
+            animal = cur.fetchone()
+            if not animal:
+                return jsonify({"success": False, "message": "找不到這隻寵物"}), 404
+            if animal['foster_id'] is not None and int(animal['foster_id']) == user_id:
+                return jsonify({"success": False, "message": "不能申請自己送養的寵物"}), 403
+            if animal['status'] != 'available':
+                return jsonify({"success": False, "message": "這隻寵物目前無法申請領養"}), 409
+
+            cur.execute(
+                "SELECT status FROM applications WHERE user_id=%s AND chip_number=%s LIMIT 1",
                 (user_id, chip),
             )
-            if cur.fetchone():
-                return jsonify({"success": False, "message": "你已申請過這隻寵物"}), 409
+            previous = cur.fetchone()
+            if previous:
+                if previous['status'] == 'rejected':
+                    message = '你申請這隻寵物的紀錄已被駁回，不能再次申請'
+                else:
+                    message = '你已申請過這隻寵物，不能重複申請'
+                return jsonify({"success": False, "message": message}), 409
             cur.execute("""
                 INSERT INTO applications
                 (user_id,chip_number,status,adopter_name,phone,
