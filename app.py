@@ -447,27 +447,43 @@ def create_application():
                 return jsonify({"success": False, "message": "這隻寵物目前無法申請領養"}), 409
 
             cur.execute(
-                "SELECT status FROM applications WHERE user_id=%s AND chip_number=%s LIMIT 1",
+                "SELECT id, status FROM applications WHERE user_id=%s AND chip_number=%s FOR UPDATE",
                 (user_id, chip),
             )
-            previous = cur.fetchone()
-            if previous:
-                if previous['status'] == 'rejected':
-                    message = '你申請這隻寵物的紀錄已被駁回，不能再次申請'
-                else:
-                    message = '你已申請過這隻寵物，不能重複申請'
-                return jsonify({"success": False, "message": message}), 409
-            cur.execute("""
-                INSERT INTO applications
-                (user_id,chip_number,status,adopter_name,phone,
-                 living_environment,pet_experience,message,environment_photo_url)
-                VALUES (%s,%s,'pending',%s,%s,%s,%s,%s,%s)
-            """, (
-                user_id, chip, data.get("adopter_name"), data.get("phone"),
-                data.get("living_environment"), data.get("pet_experience"),
-                data.get("message"), photo_url,
-            ))
-            app_id = cur.lastrowid
+            previous_rows = cur.fetchall()
+            if any(row['status'] == 'rejected' for row in previous_rows):
+                return jsonify({'success': False,
+                                'message': '你申請這隻寵物的紀錄已被駁回，不能再次申請'}), 409
+            active = [row for row in previous_rows if row['status'] != 'cancelled']
+            if active:
+                return jsonify({'success': False,
+                                'message': '你已申請過這隻寵物，不能重複申請'}), 409
+            cancelled = next((row for row in previous_rows
+                              if row['status'] == 'cancelled'), None)
+            application_values = (
+                data.get('adopter_name'), data.get('phone'),
+                data.get('living_environment'), data.get('pet_experience'),
+                data.get('message'), photo_url,
+            )
+            if cancelled:
+                # 取消後再次申請：重用原申請資料列，更新照片與申請資訊。
+                app_id = cancelled['id']
+                cur.execute("""
+                    UPDATE applications
+                    SET status='pending', adopter_name=%s, phone=%s,
+                        living_environment=%s, pet_experience=%s,
+                        message=%s, environment_photo_url=%s,
+                        created_at=CURRENT_TIMESTAMP
+                    WHERE id=%s
+                """, (*application_values, app_id))
+            else:
+                cur.execute("""
+                    INSERT INTO applications
+                    (user_id,chip_number,status,adopter_name,phone,
+                     living_environment,pet_experience,message,environment_photo_url)
+                    VALUES (%s,%s,'pending',%s,%s,%s,%s,%s,%s)
+                """, (user_id, chip, *application_values))
+                app_id = cur.lastrowid
         db.commit()
         return jsonify({"success": True, "message": "申請送出成功", "application_id": app_id}), 201
     except pymysql.MySQLError as exc:
@@ -505,7 +521,48 @@ def user_applications(user_id: int):
 
 @app.get("/applications/owner/<int:owner_id>")
 def owner_applications(owner_id: int):
-    return jsonify(application_query("a.foster_id", owner_id))
+    # 取消紀錄保留在資料庫，但不再顯示於送養者待審核列表。
+    return jsonify([row for row in application_query("a.foster_id", owner_id)
+                    if row.get('status') != 'cancelled'])
+
+
+@app.put('/applications/<int:application_id>/cancel')
+def cancel_application(application_id: int):
+    """只有原申請者可以取消待審核申請；駁回與已通過不能取消。"""
+    data = body()
+    try:
+        user_id = int(data.get('user_id'))
+        if user_id <= 0:
+            raise ValueError()
+    except (ValueError, TypeError):
+        return jsonify({'success': False, 'message': '使用者編號不正確'}), 400
+
+    db = get_db()
+    try:
+        with db.cursor() as cur:
+            cur.execute(
+                'SELECT user_id, status FROM applications WHERE id=%s FOR UPDATE',
+                (application_id,),
+            )
+            application = cur.fetchone()
+            if not application:
+                return jsonify({'success': False, 'message': '找不到申請'}), 404
+            if int(application['user_id']) != user_id:
+                return jsonify({'success': False, 'message': '只能取消自己的申請'}), 403
+            if application['status'] != 'pending':
+                return jsonify({'success': False,
+                                'message': '僅待審核的申請可以取消'}), 409
+            cur.execute(
+                "UPDATE applications SET status='cancelled' WHERE id=%s",
+                (application_id,),
+            )
+        db.commit()
+        return jsonify({'success': True, 'message': '申請已取消'})
+    except pymysql.MySQLError as exc:
+        db.rollback()
+        return jsonify({'success': False, 'message': f'資料庫錯誤：{exc}'}), 500
+    finally:
+        db.close()
 
 
 @app.put("/applications/<int:application_id>/status")
@@ -517,10 +574,12 @@ def update_application_status(application_id: int):
     db = get_db()
     try:
         with db.cursor() as cur:
-            cur.execute("SELECT chip_number FROM applications WHERE id=%s", (application_id,))
+            cur.execute("SELECT chip_number, status FROM applications WHERE id=%s FOR UPDATE", (application_id,))
             row = cur.fetchone()
             if not row:
                 return jsonify({"success": False, "message": "找不到申請"}), 404
+            if row['status'] == 'cancelled':
+                return jsonify({'success': False, 'message': '此申請已取消，無法再審核'}), 409
             cur.execute("UPDATE applications SET status=%s WHERE id=%s", (status, application_id))
             animal_status = {
                 "rejected": "available",
