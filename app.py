@@ -280,6 +280,19 @@ def restore_session():
         db.close()
 
 
+def authenticated_user_id():
+    """驗證 30 天登入憑證；不能相信前端傳來的 owner_id。"""
+    signer = _session_signer()
+    auth = request.headers.get('Authorization', '')
+    if signer is None or not auth.startswith('Bearer '):
+        return None
+    try:
+        payload = signer.loads(auth[7:].strip(), max_age=SESSION_MAX_AGE_SECONDS)
+        return int(payload['uid'])
+    except (BadSignature, SignatureExpired, ValueError, TypeError, KeyError):
+        return None
+
+
 def serialize_animals(rows):
     result = []
     for a in rows:
@@ -417,6 +430,133 @@ def manage_animal(chip_number: str):
     except pymysql.MySQLError as exc:
         db.rollback()
         return jsonify({"success": False, "message": f"資料庫錯誤：{exc}"}), 500
+    finally:
+        db.close()
+
+
+@app.put('/animals/<path:chip_number>/visibility')
+def change_owned_animal_visibility(chip_number):
+    owner_id = authenticated_user_id()
+    if owner_id is None:
+        return jsonify({'success': False, 'message': '登入已失效，請重新登入'}), 401
+    status = str(body().get('status') or '')
+    if status not in ('inactive', 'available'):
+        return jsonify({'success': False, 'message': '狀態不正確'}), 400
+    db = get_db()
+    try:
+        with db.cursor() as cur:
+            cur.execute('SELECT foster_id, status FROM animals WHERE chip_number=%s FOR UPDATE', (chip_number,))
+            animal = cur.fetchone()
+            if animal is None or animal['status'] == 'deleted':
+                return jsonify({'success': False, 'message': '找不到動物'}), 404
+            if int(animal['foster_id'] or 0) != owner_id:
+                return jsonify({'success': False, 'message': '只能管理自己送養的動物'}), 403
+            if animal['status'] not in ('available', 'inactive'):
+                return jsonify({'success': False, 'message': '目前無法上架或下架'}), 409
+            cur.execute('UPDATE animals SET status=%s WHERE chip_number=%s', (status, chip_number))
+        db.commit()
+        return jsonify({'success': True, 'message': '已' + ('下架' if status == 'inactive' else '重新上架')})
+    except pymysql.MySQLError:
+        db.rollback()
+        app.logger.exception('Update visibility failed')
+        return jsonify({'success': False, 'message': '更新失敗'}), 500
+    finally:
+        db.close()
+
+
+@app.put('/animals/<path:chip_number>')
+def edit_owned_animal(chip_number):
+    owner_id = authenticated_user_id()
+    if owner_id is None:
+        return jsonify({'success': False, 'message': '登入已失效，請重新登入'}), 401
+    data = body()
+    name = str(data.get('name') or '').strip()
+    if not name or len(name) > 100:
+        return jsonify({'success': False, 'message': '請填寫100字以內的寵物名稱'}), 400
+    species = str(data.get('species') or '').strip()
+    if species not in ('貓', '犬', '狗'):
+        return jsonify({'success': False, 'message': '動物種類不正確'}), 400
+    if species == '狗':
+        species = '犬'
+    fields = {
+        'name': name,
+        'species': species,
+        'gender': str(data.get('gender') or '').strip()[:10],
+        'size': str(data.get('size') or '').strip()[:20],
+        'age_group': str(data.get('age') or '').strip()[:30],
+        'personality': str(data.get('personality') or '').strip()[:100],
+        'health_status': str(data.get('healthStatus') or '').strip()[:255],
+        'is_neutered': 1 if data.get('isNeutered') is True else 0,
+        'owner_type': str(data.get('ownerType') or '').strip()[:30],
+        'location': str(data.get('place') or '').strip()[:100],
+        'description': str(data.get('desc') or '').strip(),
+    }
+    # 未修改照片或影片時，沿用資料庫原值。
+    if 'photos' in data:
+        photos = data['photos']
+        if (not isinstance(photos, list) or len(photos) > 5 or
+                any(not isinstance(u, str) or len(u) > 1000 or
+                    not u.startswith(('https://', 'http://')) for u in photos)):
+            return jsonify({'success': False, 'message': '照片清單不正確（最多5張）'}), 400
+        fields['media_json'] = json.dumps(photos, ensure_ascii=False)
+        fields['photo_url'] = photos[0] if photos else None
+    if 'video_url' in data:
+        video = data['video_url']
+        if video is not None and (not isinstance(video, str) or
+                                  (video and not video.startswith(('https://', 'http://')))):
+            return jsonify({'success': False, 'message': '影片網址不正確'}), 400
+        fields['video_url'] = video or None
+    # 不修改 chip_number，避免破壞申請、收藏及媒合紀錄中的關聯。
+    db = get_db()
+    try:
+        with db.cursor() as cur:
+            cur.execute('SELECT foster_id, status FROM animals WHERE chip_number=%s FOR UPDATE', (chip_number,))
+            animal = cur.fetchone()
+            if animal is None or animal['status'] == 'deleted':
+                return jsonify({'success': False, 'message': '找不到動物'}), 404
+            if int(animal['foster_id'] or 0) != owner_id:
+                return jsonify({'success': False, 'message': '只能編輯自己送養的動物'}), 403
+            if animal['status'] not in ('available', 'inactive'):
+                return jsonify({'success': False, 'message': '目前狀態不可編輯，請先聯絡管理員'}), 409
+            assignments = ', '.join(f'`{key}`=%s' for key in fields)
+            cur.execute(f'UPDATE animals SET {assignments} WHERE chip_number=%s',
+                        (*fields.values(), chip_number))
+        db.commit()
+        return jsonify({'success': True, 'message': '動物資料修改成功'})
+    except pymysql.MySQLError:
+        db.rollback()
+        app.logger.exception('Update animal failed')
+        return jsonify({'success': False, 'message': '資料庫更新失敗'}), 500
+    finally:
+        db.close()
+
+
+@app.delete('/animals/<path:chip_number>')
+def delete_owned_animal(chip_number):
+    owner_id = authenticated_user_id()
+    if owner_id is None:
+        return jsonify({'success': False, 'message': '登入已失效，請重新登入'}), 401
+    db = get_db()
+    try:
+        with db.cursor() as cur:
+            cur.execute('SELECT foster_id, status FROM animals WHERE chip_number=%s FOR UPDATE', (chip_number,))
+            animal = cur.fetchone()
+            if animal is None or animal['status'] == 'deleted':
+                return jsonify({'success': False, 'message': '找不到動物'}), 404
+            if int(animal['foster_id'] or 0) != owner_id:
+                return jsonify({'success': False, 'message': '只能刪除自己送養的動物'}), 403
+            if animal['status'] not in ('available', 'inactive'):
+                return jsonify({'success': False, 'message': '試養或已領養動物不可刪除'}), 409
+            cur.execute('SELECT COUNT(*) AS total FROM applications WHERE chip_number=%s', (chip_number,))
+            if cur.fetchone()['total'] > 0:
+                return jsonify({'success': False, 'message': '已有領養申請紀錄，不能刪除；請改為下架'}), 409
+            cur.execute("UPDATE animals SET status='deleted' WHERE chip_number=%s", (chip_number,))
+        db.commit()
+        return jsonify({'success': True, 'message': '已刪除送養動物（保留資料庫紀錄）'})
+    except pymysql.MySQLError:
+        db.rollback()
+        app.logger.exception('Delete animal failed')
+        return jsonify({'success': False, 'message': '資料庫更新失敗'}), 500
     finally:
         db.close()
 
