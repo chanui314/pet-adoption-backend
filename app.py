@@ -12,6 +12,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_cors import CORS
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
@@ -48,6 +49,48 @@ def body() -> dict[str, Any]:
 
 def md5(text: str) -> str:
     return hashlib.md5(text.encode("utf-8")).hexdigest()
+
+
+# 30 天登入憑證：必須在 Railway 設定固定、隨機的 SESSION_SECRET_KEY。
+SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
+
+
+def _session_signer():
+    secret = os.environ.get('SESSION_SECRET_KEY', '').strip()
+    if not secret or len(secret) < 32:
+        return None
+    return URLSafeTimedSerializer(secret, salt='pet-adoption-login-v1')
+
+
+def _public_login_user(user):
+    """同一種使用者資料格式供一般登入和恢復登入共用。"""
+    user = dict(user)
+    user.pop('password', None)
+    user.update({
+        "account": user.get("name"),
+        "city": user.get("address"),
+        "housing": user.get("living_environment"),
+        "experience": user.get("pet_experience"),
+        "canKeepPet": bool(user.get("can_keep_pet")),
+        "canCrossCity": bool(user.get("can_cross_city")),
+        "canTakeSpecial": bool(user.get("can_take_special")),
+        "onlyNeutered": bool(user.get("only_neutered")),
+        "dailyTime": user.get("daily_time"),
+        "prefType": user.get("pref_type"),
+        "prefAge": user.get("pref_age"),
+        "prefGender": user.get("pref_gender"),
+        "familyChild": user.get("family_child"),
+        "personalityPref": user.get("personality_pref"),
+        "housingSize": user.get("housing_size"),
+        "travelFrequency": user.get("travel_frequency"),
+        "livingStability": user.get("living_stability"),
+        "monthlyBudget": user.get("monthly_budget"),
+        "childAge": user.get("child_age"),
+        "hasOtherPets": user.get("has_other_pets"),
+        "allergyTolerance": user.get("allergy_tolerance"),
+        "role": role_flutter(user.get("role")),
+    })
+    return serial(user)
 
 
 def role_db(role: str | None) -> str:
@@ -194,32 +237,45 @@ def login():
         if not user:
             return jsonify({"success": False, "message": "帳號或密碼錯誤"}), 401
 
-        user.pop("password", None)
-        user.update({
-            "account": user.get("name"),
-            "city": user.get("address"),
-            "housing": user.get("living_environment"),
-            "experience": user.get("pet_experience"),
-            "canKeepPet": bool(user.get("can_keep_pet")),
-            "canCrossCity": bool(user.get("can_cross_city")),
-            "canTakeSpecial": bool(user.get("can_take_special")),
-            "onlyNeutered": bool(user.get("only_neutered")),
-            "dailyTime": user.get("daily_time"),
-            "prefType": user.get("pref_type"),
-            "prefAge": user.get("pref_age"),
-            "prefGender": user.get("pref_gender"),
-            "familyChild": user.get("family_child"),
-            "personalityPref": user.get("personality_pref"),
-            "housingSize": user.get("housing_size"),
-            "travelFrequency": user.get("travel_frequency"),
-            "livingStability": user.get("living_stability"),
-            "monthlyBudget": user.get("monthly_budget"),
-            "childAge": user.get("child_age"),
-            "hasOtherPets": user.get("has_other_pets"),
-            "allergyTolerance": user.get("allergy_tolerance"),
-            "role": role_flutter(user.get("role")),
-        })
-        return jsonify({"success": True, "message": "登入成功", "user": serial(user)})
+        signer = _session_signer()
+        if signer is None:
+            app.logger.error('SESSION_SECRET_KEY missing or shorter than 32 characters')
+            return jsonify({"success": False, "message": "伺服器尚未設定登入憑證密鑰 SESSION_SECRET_KEY"}), 503
+        token = signer.dumps({'uid': int(user['id'])})
+        return jsonify({"success": True, "message": "登入成功",
+                        "user": _public_login_user(user),
+                        "token": token,
+                        "expires_in": SESSION_MAX_AGE_SECONDS})
+    finally:
+        db.close()
+
+
+@app.get('/session')
+def restore_session():
+    signer = _session_signer()
+    if signer is None:
+        return jsonify({'success': False, 'message': '伺服器登入設定不完整'}), 503
+
+    authorization = request.headers.get('Authorization', '')
+    if not authorization.startswith('Bearer '):
+        return jsonify({'success': False, 'message': '缺少登入憑證'}), 401
+    token = authorization[7:].strip()
+    if not token:
+        return jsonify({'success': False, 'message': '缺少登入憑證'}), 401
+    try:
+        data = signer.loads(token, max_age=SESSION_MAX_AGE_SECONDS)
+        user_id = int(data['uid'])
+    except (BadSignature, SignatureExpired, ValueError, TypeError, KeyError):
+        return jsonify({'success': False, 'message': '登入已過期，請重新登入'}), 401
+
+    db = get_db()
+    try:
+        with db.cursor() as cur:
+            cur.execute('SELECT * FROM users WHERE id=%s LIMIT 1', (user_id,))
+            user = cur.fetchone()
+        if user is None:
+            return jsonify({'success': False, 'message': '使用者不存在，請重新登入'}), 401
+        return jsonify({'success': True, 'user': _public_login_user(user)})
     finally:
         db.close()
 
