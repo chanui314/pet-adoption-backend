@@ -68,6 +68,7 @@ def _public_login_user(user):
     user.pop('password', None)
     user.update({
         "account": user.get("name"),
+        "avatarUrl": user.get("avatar_url"),
         "city": user.get("address"),
         "housing": user.get("living_environment"),
         "experience": user.get("pet_experience"),
@@ -432,6 +433,83 @@ def update_my_profile():
         db.rollback()
         app.logger.exception('Failed to update profile for user id=%s', user_id)
         return jsonify({'success': False, 'message': '資料庫更新失敗，請稍後重試'}), 500
+    finally:
+        db.close()
+
+
+
+@app.post('/users/me/avatar')
+def upload_my_avatar():
+    """本人登入後上傳頭像（JPG/PNG/WebP，最多 3 MB）。"""
+    user_id = authenticated_user_id()
+    if user_id is None:
+        return jsonify({'success': False, 'message': '登入已過期，請重新登入'}), 401
+    upload = request.files.get('file')
+    if upload is None or not upload.filename:
+        return jsonify({'success': False, 'message': '請選擇頭像照片'}), 400
+    # 避免未驗證的內容被當成可執行檔案儲存。
+    extension = os.path.splitext(secure_filename(upload.filename))[1].lower()
+    if extension not in ('.jpg', '.jpeg', '.png', '.webp'):
+        return jsonify({'success': False, 'message': '頭像僅支援 JPG、PNG、WebP'}), 400
+    content = upload.stream.read(3 * 1024 * 1024 + 1)
+    if not content or len(content) > 3 * 1024 * 1024:
+        return jsonify({'success': False, 'message': '頭像大小不得超過 3 MB'}), 413
+    is_jpeg = extension in ('.jpg', '.jpeg') and content.startswith(b'\xff\xd8\xff')
+    is_png = extension == '.png' and content.startswith(b'\x89PNG\r\n\x1a\n')
+    is_webp = extension == '.webp' and content.startswith(b'RIFF') and content[8:12] == b'WEBP'
+    if not (is_jpeg or is_png or is_webp):
+        return jsonify({'success': False, 'message': '檔案內容不是有效的照片格式'}), 400
+    filename = 'avatar_' + uuid.uuid4().hex + ('.jpg' if extension == '.jpeg' else extension)
+    public_base = os.environ.get('PUBLIC_API_BASE_URL', request.url_root.rstrip('/')).rstrip('/')
+    avatar_url = f'{public_base}/uploads/{filename}'
+    filepath = os.path.join(UPLOAD_DIR, filename)
+    try:
+        with open(filepath, 'xb') as target:
+            target.write(content)
+    except OSError:
+        app.logger.exception('Avatar upload failed')
+        return jsonify({'success': False, 'message': '頭像檔案儲存失敗，請檢查 Railway Volume'}), 500
+    db = get_db()
+    try:
+        with db.cursor() as cur:
+            cur.execute('UPDATE users SET avatar_url=%s WHERE id=%s', (avatar_url, user_id))
+            if cur.rowcount != 1:
+                db.rollback()
+                try:
+                    os.remove(filepath)
+                except OSError:
+                    pass
+                return jsonify({'success': False, 'message': '使用者不存在'}), 404
+        db.commit()
+        return jsonify({'success': True, 'message': '頭像已更新', 'avatarUrl': avatar_url})
+    except pymysql.MySQLError:
+        db.rollback()
+        app.logger.exception('Avatar database update failed')
+        try:
+            os.remove(filepath)
+        except OSError:
+            pass
+        return jsonify({'success': False, 'message': '資料庫儲存失敗，請先新增 users.avatar_url 欄位'}), 500
+    finally:
+        db.close()
+
+
+@app.delete('/users/me/avatar')
+def remove_my_avatar():
+    user_id = authenticated_user_id()
+    if user_id is None:
+        return jsonify({'success': False, 'message': '登入已過期，請重新登入'}), 401
+    db = get_db()
+    try:
+        with db.cursor() as cur:
+            cur.execute('UPDATE users SET avatar_url=NULL WHERE id=%s', (user_id,))
+        db.commit()
+        # 保留舊媒體檔案，避免誤刪其他內容；頭像網址將不再被使用。
+        return jsonify({'success': True, 'message': '已移除頭像', 'avatarUrl': None})
+    except pymysql.MySQLError:
+        db.rollback()
+        app.logger.exception('Remove avatar failed')
+        return jsonify({'success': False, 'message': '移除頭像失敗'}), 500
     finally:
         db.close()
 
