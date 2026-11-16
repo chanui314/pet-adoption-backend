@@ -314,6 +314,15 @@ def serialize_animals(rows):
             "ownerType": a.get("owner_type") or "收容所",
             "owner": a.get("foster_account") or a.get("owner_name") or "系統資料",
             "owner_id": a.get("foster_id"),
+            "facilityName": a.get("facility_name"),
+            "fullAddress": a.get("full_address") if a.get("address_public") else None,
+            "addressPublic": bool(a.get("address_public")),
+            "contactPhone": a.get("contact_phone"),
+            "visitingHours": a.get("visiting_hours"),
+            "visitNotes": a.get("visit_notes"),
+            "careNotes": a.get("care_notes"),
+            "adoptionRequirements": a.get("adoption_requirements"),
+            "coatColor": a.get("coat_color"),
             "desc": a.get("description") or a.get("surrender_reason") or "",
             "status": a.get("status"),
             "photo": a.get("photo_url"),
@@ -449,6 +458,15 @@ def animals():
                 "ownerType": a.get("owner_type") or "收容所",
                 "owner": a.get("foster_account") or a.get("owner_name") or "系統資料",
                 "owner_id": a.get("foster_id"),
+            "facilityName": a.get("facility_name"),
+            "fullAddress": a.get("full_address") if a.get("address_public") else None,
+            "addressPublic": bool(a.get("address_public")),
+            "contactPhone": a.get("contact_phone"),
+            "visitingHours": a.get("visiting_hours"),
+            "visitNotes": a.get("visit_notes"),
+            "careNotes": a.get("care_notes"),
+            "adoptionRequirements": a.get("adoption_requirements"),
+            "coatColor": a.get("coat_color"),
                 "desc": a.get("description") or a.get("surrender_reason") or "",
                 "status": "待領養",
                 "photo": a.get("photo_url"),
@@ -466,6 +484,8 @@ def animals():
 
 @app.get("/animals/owner/<int:owner_id>")
 def owner_animals(owner_id: int):
+    if authenticated_user_id() != owner_id:
+        return jsonify({'success': False, 'message': '只允許查看自己送養的動物'}), 403
     db = get_db()
     try:
         with db.cursor() as cur:
@@ -477,7 +497,10 @@ def owner_animals(owner_id: int):
                 ORDER BY a.created_at DESC
             """, (owner_id,))
             rows = cur.fetchall()
-        return jsonify(serialize_animals(rows))
+        output = serialize_animals(rows)
+        for item, original in zip(output, rows):
+            item['fullAddress'] = original.get('full_address')
+        return jsonify(output)
     finally:
         db.close()
 
@@ -579,7 +602,25 @@ def edit_owned_animal(chip_number):
         'owner_type': str(data.get('ownerType') or '').strip()[:30],
         'location': str(data.get('place') or '').strip()[:100],
         'description': str(data.get('desc') or '').strip(),
+        'facility_name': str(data.get('facilityName') or '').strip(),
+        'full_address': str(data.get('fullAddress') or '').strip(),
+        'address_public': 1 if data.get('addressPublic') is True else 0,
+        'contact_phone': str(data.get('contactPhone') or '').strip(),
+        'visiting_hours': str(data.get('visitingHours') or '').strip(),
+        'visit_notes': str(data.get('visitNotes') or '').strip(),
+        'care_notes': str(data.get('careNotes') or '').strip(),
+        'adoption_requirements': str(data.get('adoptionRequirements') or '').strip(),
+        'breed': str(data.get('breed') or '').strip(),
+        'coat_color': str(data.get('coatColor') or '').strip(),
     }
+    limits = {'facility_name':120, 'full_address':255, 'contact_phone':30,
+              'visiting_hours':150, 'visit_notes':500, 'care_notes':1000,
+              'adoption_requirements':1000, 'breed':100, 'coat_color':100}
+    for key, maximum in limits.items():
+        if len(fields[key]) > maximum:
+            return jsonify({'success': False, 'message': f'{key} 超過 {maximum} 字'}), 400
+    if fields['address_public'] and not fields['full_address']:
+        return jsonify({'success': False, 'message': '公開詳細地址時必須填寫地址'}), 400
     # 未修改照片或影片時，沿用資料庫原值。
     if 'photos' in data:
         photos = data['photos']
@@ -662,6 +703,20 @@ def create_animal():
         return jsonify({"success": False, "message": "請填寫寵物名稱及必要的晶片號碼"}), 400
     if chip_status != "known":
         chip = "TEMP-" + uuid.uuid4().hex.upper()
+    if not str(data.get('contactPhone') or '').strip() or not str(data.get('visitingHours') or '').strip():
+        return jsonify({'success': False, 'message': '請填寫公開聯絡電話與參觀時間'}), 400
+    if data.get('addressPublic') is True and not str(data.get('fullAddress') or '').strip():
+        return jsonify({'success': False, 'message': '公開詳細地址前請先填入地址'}), 400
+    for key, limit in {'facilityName':120, 'fullAddress':255, 'contactPhone':30,
+                       'visitingHours':150, 'visitNotes':500, 'careNotes':1000,
+                       'adoptionRequirements':1000}.items():
+        if len(str(data.get(key) or '')) > limit:
+            return jsonify({'success': False, 'message': f'{key} 欄位過長'}), 400
+    owner_uid = authenticated_user_id()
+    if owner_uid is None:
+        return jsonify({'success': False, 'message': '請重新登入'}), 401
+    # 不信任前端提供的送養者 ID。
+    data['foster_id'] = owner_uid
 
     db = get_db()
     try:
@@ -671,12 +726,15 @@ def create_animal():
                 (chip_number,name,species,gender,breed,coat_color,size,
                  surrender_reason,owner_name,shelter_name,announcement_date,
                  age_group,personality,health_status,is_neutered,owner_type,
-                 foster_id,description,status,location,photo_url,chip_status,media_json,video_url)
+                 foster_id,description,status,location,photo_url,chip_status,media_json,video_url,
+                 facility_name,full_address,address_public,contact_phone,visiting_hours,
+                 visit_notes,care_notes,adoption_requirements)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,CURDATE(),
-                        %s,%s,%s,%s,%s,%s,%s,'available',%s,%s,%s,%s,%s)
+                        %s,%s,%s,%s,%s,%s,%s,'available',%s,%s,%s,%s,%s,
+                        %s,%s,%s,%s,%s,%s,%s,%s)
             """, (
                 chip, name, data.get("species"), data.get("gender"),
-                data.get("breed"), data.get("coat_color"), data.get("size"),
+                data.get("breed"), data.get("coatColor"), data.get("size"),
                 data.get("surrender_reason"), data.get("owner_name"),
                 data.get("shelter_name"), data.get("age"), data.get("personality"),
                 data.get("healthStatus"), data.get("isNeutered"),
@@ -684,6 +742,14 @@ def create_animal():
                 data.get("place"), data.get("photo"), chip_status,
                 json.dumps(data.get('photos') or [], ensure_ascii=False),
                 data.get('video_url') or None,
+                str(data.get('facilityName') or '').strip(),
+                str(data.get('fullAddress') or '').strip(),
+                1 if data.get('addressPublic') is True else 0,
+                str(data.get('contactPhone') or '').strip(),
+                str(data.get('visitingHours') or '').strip(),
+                str(data.get('visitNotes') or '').strip(),
+                str(data.get('careNotes') or '').strip(),
+                str(data.get('adoptionRequirements') or '').strip(),
             ))
         db.commit()
         return jsonify({"success": True, "message": "寵物發布成功", "animal_id": chip}), 201
