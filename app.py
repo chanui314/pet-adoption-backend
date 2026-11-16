@@ -174,7 +174,7 @@ def index():
 def register():
     data = body()
     account = str(data.get("account") or "").strip()
-    email = str(data.get("email") or "").strip()
+    email = str(data.get("email") or "").strip().lower()
     password = str(data.get("password") or "")
     if not account or not email or not password:
         return jsonify({"success": False, "message": "帳號、Email、密碼不可空白"}), 400
@@ -204,9 +204,12 @@ def register():
     db = get_db()
     try:
         with db.cursor() as cur:
-            cur.execute("SELECT id FROM users WHERE email=%s OR name=%s", (email, account))
+            cur.execute("SELECT id FROM users WHERE name=%s LIMIT 1", (account,))
             if cur.fetchone():
-                return jsonify({"success": False, "message": "帳號或 Email 已存在"}), 409
+                return jsonify({"success": False, "message": "此帳號名稱已被使用，請更換"}), 409
+            cur.execute("SELECT id FROM users WHERE email=%s LIMIT 1", (email,))
+            if cur.fetchone():
+                return jsonify({"success": False, "message": "此 Email 已被註冊，請直接登入"}), 409
             cur.execute(
                 f"INSERT INTO users ({','.join(columns)}) VALUES ({','.join(['%s'] * len(columns))})",
                 values,
@@ -214,9 +217,16 @@ def register():
             user_id = cur.lastrowid
         db.commit()
         return jsonify({"success": True, "message": "註冊成功", "user_id": user_id}), 201
-    except pymysql.MySQLError as exc:
+    except pymysql.err.IntegrityError as exc:
         db.rollback()
-        return jsonify({"success": False, "message": f"資料庫錯誤：{exc}"}), 500
+        if exc.args and exc.args[0] == 1062:
+            return jsonify({"success": False, "message": "帳號名稱或 Email 已被註冊，請更換後重試"}), 409
+        app.logger.exception('Registration integrity error')
+        return jsonify({"success": False, "message": "註冊資料不符合資料庫限制"}), 400
+    except pymysql.MySQLError:
+        db.rollback()
+        app.logger.exception('Registration database error')
+        return jsonify({"success": False, "message": "註冊失敗，請稍後重試"}), 500
     finally:
         db.close()
 
