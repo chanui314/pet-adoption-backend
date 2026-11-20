@@ -321,7 +321,7 @@ def serialize_animals(rows):
             "size": a.get("size") or "未提供",
             "personality": a.get("personality") or "未提供",
             "healthStatus": a.get("health_status") or "未提供",
-            "isNeutered": bool(a.get("is_neutered")),
+            "isNeutered": (None if a.get("is_neutered") is None else bool(a.get("is_neutered"))),
             "ownerType": a.get("owner_type") or "收容所",
             "owner": a.get("foster_account") or a.get("owner_name") or "系統資料",
             "owner_id": a.get("foster_id"),
@@ -542,7 +542,7 @@ def animals():
                 "size": a.get("size") or "未提供",
                 "personality": a.get("personality") or "未提供",
                 "healthStatus": a.get("health_status") or "未提供",
-                "isNeutered": bool(a.get("is_neutered")),
+                "isNeutered": (None if a.get("is_neutered") is None else bool(a.get("is_neutered"))),
                 "ownerType": a.get("owner_type") or "收容所",
                 "owner": a.get("foster_account") or a.get("owner_name") or "系統資料",
                 "owner_id": a.get("foster_id"),
@@ -678,6 +678,8 @@ def edit_owned_animal(chip_number):
         return jsonify({'success': False, 'message': '動物種類不正確'}), 400
     if species == '狗':
         species = '犬'
+    if data.get('isNeutered') is not None and not isinstance(data['isNeutered'], bool):
+        return jsonify({'success': False, 'message': '是否絕育只接受已絕育、未絕育或未提供'}), 400
     fields = {
         'name': name,
         'species': species,
@@ -686,7 +688,7 @@ def edit_owned_animal(chip_number):
         'age_group': str(data.get('age') or '').strip()[:30],
         'personality': str(data.get('personality') or '').strip()[:100],
         'health_status': str(data.get('healthStatus') or '').strip()[:255],
-        'is_neutered': 1 if data.get('isNeutered') is True else 0,
+        'is_neutered': (None if data.get('isNeutered') is None else 1 if data['isNeutered'] is True else 0),
         'owner_type': str(data.get('ownerType') or '').strip()[:30],
         'location': str(data.get('place') or '').strip()[:100],
         'description': str(data.get('desc') or '').strip(),
@@ -800,6 +802,8 @@ def create_animal():
                        'adoptionRequirements':1000}.items():
         if len(str(data.get(key) or '')) > limit:
             return jsonify({'success': False, 'message': f'{key} 欄位過長'}), 400
+    if data.get('isNeutered') is not None and not isinstance(data['isNeutered'], bool):
+        return jsonify({'success': False, 'message': '是否絕育只接受已絕育、未絕育或未提供'}), 400
     owner_uid = authenticated_user_id()
     if owner_uid is None:
         return jsonify({'success': False, 'message': '請重新登入'}), 401
